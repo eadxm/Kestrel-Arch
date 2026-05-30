@@ -1,0 +1,53 @@
+name: Bake Eadxm Arch ISO
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: # Allows you to manually trigger the build with a button
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+      options: --privileged # Required for mkarchiso to mount filesystems securely
+
+    steps:
+    - name: Checkout Repository Code
+      uses: actions/checkout@v4
+
+    - name: Initialize System & Install Archiso
+      run: |
+        pacman -Syu --noconfirm
+        pacman -S --noconfirm archiso git dos2unix
+
+    - name: Set Up Custom Profile Architecture
+      run: |
+        # Copy the stock Arch template profile
+        cp -r /usr/share/archiso/configs/releng/ ./build_profile
+        
+        # Inject your custom package tracking array
+        cat packages.x86_64 >> ./build_profile/packages.x86_64
+        
+        # Inject your automated configuration scripts and services
+        cp -r airootfs/* ./build_profile/airootfs/
+        
+        # Fix Windows CRLF line-ending bugs seamlessly before building
+        dos2unix ./build_profile/airootfs/usr/local/bin/auto-install.sh
+        
+        # Grant critical script execution privileges 
+        chmod +x ./build_profile/airootfs/usr/local/bin/auto-install.sh
+        
+        # Enable your custom automated setup service on bootup
+        ln -s /etc/systemd/system/autoinstall.service ./build_profile/airootfs/etc/systemd/system/multi-user.target.wants/autoinstall.service
+
+    - name: Compile Custom ISO Image
+      run: |
+        mkdir -p ./output
+        mkarchiso -v -w /tmp/archiso-workspace -o ./output ./build_profile
+
+    - name: Upload Finished Bootable ISO Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: Eadxm-Arch-Architect-ISO
+        path: ./output/*.iso
+        retention-days: 7
