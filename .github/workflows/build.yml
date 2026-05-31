@@ -11,7 +11,7 @@ jobs:
       image: archlinux:latest
       options: --privileged 
 
-    steps:
+  steps:
     - name: Checkout Repository Code
       uses: actions/checkout@v4
 
@@ -24,6 +24,10 @@ jobs:
       run: |
         # Copy the stock Arch template profile
         cp -r /usr/share/archiso/configs/releng/ ./build_profile
+        
+        # FIX: Explicitly enable [extra] and [multilib] inside the active build profile's config
+        echo -e "\n[extra]\nInclude = /etc/pacman.d/mirrorlist" >> ./build_profile/pacman.conf
+        echo -e "\n[multilib]\nInclude = /etc/pacman.d/mirrorlist" >> ./build_profile/pacman.conf
         
         # Scrub invisible Windows formatting from the package list BEFORE appending it
         dos2unix packages.x86_64
