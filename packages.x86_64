@@ -2,6 +2,7 @@
 ntfs-3g
 networkmanager
 flatpak
+sudo
 
 # --- BACKEND AUDIO STACK ---
 pipewire
@@ -22,6 +23,27 @@ nvidia-utils
 xf86-video-amdgpu
 xf86-video-intel
 intel-media-driver
+
+# --- DISPLAY SERVER & LOGIN MANAGER ---
+xorg-server
+sddm
+
+# --- HYPRLAND WORKSPACE APPS ---
+hyprland
+waybar
+kitty
+rofi-wayland
+xdg-desktop-portal-hyprland
+
+# --- KDE PLASMA WORKSPACE APPS ---
+plasma-desktop
+plasma-nm
+power-profiles-daemon
+kscreen
+
+# --- XFCE WORKSPACE APPS ---
+xfce4
+xfce4-goodies
 
 # --- PRE-BAKED OFFLINE WORKSPACE APPS ---
 firefox
