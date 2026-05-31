@@ -11,48 +11,48 @@ jobs:
       image: archlinux:latest
       options: --privileged 
 
-  steps:
-    - name: Checkout Repository Code
-      uses: actions/checkout@v4
+    steps:
+      - name: Checkout Repository Code
+        uses: actions/checkout@v4
 
-    - name: Initialize System & Install Archiso
-      run: |
-        pacman -Syu --noconfirm
-        pacman -S --noconfirm archiso git dos2unix
+      - name: Initialize System & Install Archiso
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm archiso git dos2unix
 
-    - name: Set Up Custom Profile Architecture
-      run: |
-        # Copy the stock Arch template profile
-        cp -r /usr/share/archiso/configs/releng/ ./build_profile
-        
-        # FIX: Explicitly enable [extra] and [multilib] inside the active build profile's config
-        echo -e "\n[extra]\nInclude = /etc/pacman.d/mirrorlist" >> ./build_profile/pacman.conf
-        echo -e "\n[multilib]\nInclude = /etc/pacman.d/mirrorlist" >> ./build_profile/pacman.conf
-        
-        # Scrub invisible Windows formatting from the package list BEFORE appending it
-        dos2unix packages.x86_64
-        cat packages.x86_64 >> ./build_profile/packages.x86_64
-        
-        # Inject your automated configuration scripts and services
-        cp -r airootfs/* ./build_profile/airootfs/
-        
-        # Scrub invisible Windows formatting from your installer script
-        dos2unix ./build_profile/airootfs/usr/local/bin/auto-install.sh
-        
-        # Grant execution privileges
-        chmod +x ./build_profile/airootfs/usr/local/bin/auto-install.sh
-        
-        # Enable your custom automated setup service on bootup
-        ln -s /etc/systemd/system/autoinstall.service ./build_profile/airootfs/etc/systemd/system/multi-user.target.wants/autoinstall.service
+      - name: Set Up Custom Profile Architecture
+        run: |
+          # Copy the stock Arch template profile
+          cp -r /usr/share/archiso/configs/releng/ ./build_profile
+          
+          # FIX: Explicitly enable [extra] and [multilib] inside the active build profile's config
+          echo -e "\n[extra]\nInclude = /etc/pacman.d/mirrorlist" >> ./build_profile/pacman.conf
+          echo -e "\n[multilib]\nInclude = /etc/pacman.d/mirrorlist" >> ./build_profile/pacman.conf
+          
+          # Scrub invisible Windows formatting from the package list BEFORE appending it
+          dos2unix packages.x86_64
+          cat packages.x86_64 >> ./build_profile/packages.x86_64
+          
+          # Inject your automated configuration scripts and services
+          cp -r airootfs/* ./build_profile/airootfs/
+          
+          # Scrub invisible Windows formatting from your installer script
+          dos2unix ./build_profile/airootfs/usr/local/bin/auto-install.sh
+          
+          # Grant execution privileges
+          chmod +x ./build_profile/airootfs/usr/local/bin/auto-install.sh
+          
+          # Enable your custom automated setup service on bootup
+          ln -s /etc/systemd/system/autoinstall.service ./build_profile/airootfs/etc/systemd/system/multi-user.target.wants/autoinstall.service
 
-    - name: Compile Custom ISO Image
-      run: |
-        mkdir -p ./output
-        mkarchiso -v -w /tmp/archiso-workspace -o ./output ./build_profile
+      - name: Compile Custom ISO Image
+        run: |
+          mkdir -p ./output
+          mkarchiso -v -w /tmp/archiso-workspace -o ./output ./build_profile
 
-    - name: Upload Finished Bootable ISO Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: Eadxm-Arch-Architect-ISO
-        path: ./output/*.iso
-        retention-days: 7
+      - name: Upload Finished Bootable ISO Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Eadxm-Arch-Architect-ISO
+          path: ./output/*.iso
+          retention-days: 7
