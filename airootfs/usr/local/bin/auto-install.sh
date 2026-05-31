@@ -60,6 +60,7 @@ TARGET="/mnt"
 ISO_CACHE="/var/cache/pacman/pkg"
 GRUB_OS_PROBER="true"
 EFI_DIR="/boot"
+ARCH_ROOT=""
 
 # Base system package matrix (Added 'sudo' and 'sddm' as base requirements)
 CORE_PKGS="base linux linux-firmware grub efibootmgr os-prober ntfs-3g networkmanager bluez bluez-utils blueman pipewire pipewire-pulse wireplumber brightnessctl flatpak xorg-server sddm sudo"
@@ -225,9 +226,11 @@ case $USER_CHOICE in
             partprobe "$TARGET_DRIVE"
             sleep 2
             
-            BIOS_ROOT="${TARGET_DRIVE}${PART_PREFIX}1"
-            mkfs.ext4 -F "$BIOS_ROOT"
-            mount "$BIOS_ROOT" $TARGET
+            # FIX: Standardize global variables to prevent target tracking failure
+            ARCH_ROOT="${TARGET_DRIVE}${PART_PREFIX}1"
+            mkfs.ext4 -F "$ARCH_ROOT"
+            mount "$ARCH_ROOT" $TARGET
+            EFI_DIR="/boot"
         fi
         GRUB_OS_PROBER="true"
         ;;
@@ -252,6 +255,9 @@ case $USER_CHOICE in
         if [ -d "/sys/firmware/efi" ]; then
             mkdir -p $TARGET/boot
             mount "$ARCH_EFI" $TARGET/boot
+            EFI_DIR="/boot"
+        else
+            # FIX: Maintain initialization safety loops on non-EFI deployment profiles
             EFI_DIR="/boot"
         fi
         
@@ -467,7 +473,6 @@ if [ -d "/sys/firmware/efi" ]; then
     arch-chroot $TARGET grub-install --target=x86_64-efi --efi-directory=$EFI_DIR --bootloader-id=ArchLinux --recheck
 else
     echo "[INFO] Firmware Hook Confirmed: LEGACY BIOS TARGET DETECTED (Lenovo G560 Compatibility Mode)"
-    # Targets raw disk block header (e.g., /dev/sda), not an internal partition handle
     arch-chroot $TARGET grub-install --target=i386-pc "$TARGET_DRIVE" --recheck
 fi
 
