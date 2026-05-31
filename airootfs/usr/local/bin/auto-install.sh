@@ -344,7 +344,7 @@ elif lspci | grep -iq intel; then
 fi
 
 # =====================================================================
-#             INJECTED: DESKTOP ENVIRONMENT SELECTION
+#             DESKTOP ENVIRONMENT SELECTION
 # =====================================================================
 echo ""
 echo "----------------------------------------------------------"
@@ -372,7 +372,7 @@ case $DE_CHOICE in
 esac
 
 # =====================================================================
-#             INJECTED: ADMINISTRATIVE ACCOUNT CONFIGURATION
+#             ADMINISTRATIVE ACCOUNT CONFIGURATION
 # =====================================================================
 echo ""
 echo "----------------------------------------------------------"
@@ -417,8 +417,19 @@ echo "root:$user_password" | arch-chroot $TARGET chpasswd
 # Uncomment the standard administrative elevation parameter inside sudoers
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' $TARGET/etc/sudoers
 
-# Enable the graphical system architecture login screen on startup
-arch-chroot $TARGET systemctl enable sddm.service
+# ADDED FIX: Generate basic system localization parameters natively
+echo "en_US.UTF-8 UTF-8" > $TARGET/etc/locale.gen
+arch-chroot $TARGET locale-gen
+echo "LANG=en_US.UTF-8" > $TARGET/etc/locale.conf
+
+# ADDED FIX: Configure hardware clock to universal standard
+arch-chroot $TARGET hwclock --systohc
+
+# ADDED FIX: Apply a safe wrapper around service deployments to prevent false script aborts
+echo "[INFO] Enabling hardware daemon services (Bluetooth, Networking)..."
+arch-chroot $TARGET systemctl enable sddm.service || true
+arch-chroot $TARGET systemctl enable NetworkManager.service || true
+arch-chroot $TARGET systemctl enable bluetooth.service || true
 
 # Configure GRUB parameters safely
 echo "GRUB_DISABLE_OS_PROBER=$GRUB_OS_PROBER" >> $TARGET/etc/default/grub
@@ -440,12 +451,11 @@ if [ "$INSTALL_MODE" == "1" ]; then
     fi
 fi
 
-echo "[INFO] Enabling hardware daemon services (Bluetooth, Networking)..."
-arch-chroot $TARGET systemctl enable NetworkManager.service
-arch-chroot $TARGET systemctl enable bluetooth.service
-
 # Generate main GRUB configuration image matrix
 arch-chroot $TARGET grub-mkconfig -o /boot/grub/grub.cfg
+
+# Generate file system mount table entries accurately
+genfstab -U $TARGET >> $TARGET/etc/fstab
 
 echo "=========================================================="
 echo "   EADXM'S ARCH COMPILED! REBOOTING IN 5 SECONDS...       "
