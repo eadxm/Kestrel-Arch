@@ -171,7 +171,7 @@ echo "=========================================================="
 echo ""
 echo "Select your installation pathway:"
 echo " [1] DUAL BOOT - Keep Windows, bypass the 100MB EFI restriction safely."
-echo " [2] HARD NUKE - Wipe the drive, build a spacious 1GB EFI, clean install."
+echo " [2] HARD NUKE - Wipe the drive, build an adaptive firmware layout, clean install."
 echo " [3] MANUAL ADVANCED - Launch interactive cfdisk to resize/create partitions manually."
 echo " [4] TARGET NUKE - Auto-detect and wipe Windows C: drive only, replace with Arch."
 echo " [5] DROP TO SHELL - Exit installer to a standard Arch Zsh terminal."
@@ -200,17 +200,35 @@ case $USER_CHOICE in
         echo "====== CRITICAL WARNING: NUKING ALL WINDOWS PARTITIONS ======"
         echo "Clearing partition blocks in 5 seconds... Press Ctrl+C to abort!"
         sleep 5
-        sgdisk --zap-all "$TARGET_DRIVE"
-        sgdisk -n 1:0:+1G -t 1:ef00 -c 1:"EFI" "$TARGET_DRIVE"
-        sgdisk -n 2:0:0   -t 2:8300 -c 2:"ROOT" "$TARGET_DRIVE"
-        partprobe "$TARGET_DRIVE"
-        sleep 2
-        mkfs.vfat -F 32 "${TARGET_DRIVE}${PART_PREFIX}1"
-        mkfs.ext4 -F "${TARGET_DRIVE}${PART_PREFIX}2"
-        mount "${TARGET_DRIVE}${PART_PREFIX}2" $TARGET
-        mkdir -p $TARGET/boot
-        mount "${TARGET_DRIVE}${PART_PREFIX}1" $TARGET/boot
-        EFI_DIR="/boot"
+        
+        if [ -d "/sys/firmware/efi" ]; then
+            echo "[INFO] Environmental Check: Configuring MODERN UEFI Partition Matrix (GPT)..."
+            sgdisk --zap-all "$TARGET_DRIVE"
+            sgdisk -n 1:0:+1G -t 1:ef00 -c 1:"EFI" "$TARGET_DRIVE"
+            sgdisk -n 2:0:0   -t 2:8300 -c 2:"ROOT" "$TARGET_DRIVE"
+            partprobe "$TARGET_DRIVE"
+            sleep 2
+            mkfs.vfat -F 32 "${TARGET_DRIVE}${PART_PREFIX}1"
+            mkfs.ext4 -F "${TARGET_DRIVE}${PART_PREFIX}2"
+            mount "${TARGET_DRIVE}${PART_PREFIX}2" $TARGET
+            mkdir -p $TARGET/boot
+            mount "${TARGET_DRIVE}${PART_PREFIX}1" $TARGET/boot
+            EFI_DIR="/boot"
+        else
+            echo "[INFO] Environmental Check: Configuring LEGACY BIOS Partition Matrix (MBR)..."
+            # Fully purge existing GPT configurations to avoid alignment warnings
+            sgdisk --zap-all "$TARGET_DRIVE" &>/dev/null || true
+            
+            # Form single massive continuous MBR partition
+            echo "label: dos" | sfdisk "$TARGET_DRIVE" &>/dev/null
+            echo ", ," | sfdisk "$TARGET_DRIVE" --force &>/dev/null
+            partprobe "$TARGET_DRIVE"
+            sleep 2
+            
+            BIOS_ROOT="${TARGET_DRIVE}${PART_PREFIX}1"
+            mkfs.ext4 -F "$BIOS_ROOT"
+            mount "$BIOS_ROOT" $TARGET
+        fi
         GRUB_OS_PROBER="true"
         ;;
     3)
@@ -220,15 +238,23 @@ case $USER_CHOICE in
         lsblk "$TARGET_DRIVE" -o NAME,SIZE,TYPE,FSTYPE
         echo "----------------------------------------------------------"
         read -p "Enter the exact partition to use for Arch ROOT (e.g., /dev/sda3): " ARCH_ROOT
-        read -p "Enter your system's EFI partition path (e.g., /dev/sda1): " ARCH_EFI
+        
+        if [ -d "/sys/firmware/efi" ]; then
+            read -p "Enter your system's EFI partition path (e.g., /dev/sda1): " ARCH_EFI
+        fi
+        
         read -p "Would you like to format $ARCH_ROOT to ext4? (y/N): " FORMAT_ROOT
         if [[ "$FORMAT_ROOT" =~ ^[Yy]$ ]]; then
             mkfs.ext4 -F "$ARCH_ROOT"
         fi
         mount "$ARCH_ROOT" $TARGET
-        mkdir -p $TARGET/boot
-        mount "$ARCH_EFI" $TARGET/boot
-        EFI_DIR="/boot"
+        
+        if [ -d "/sys/firmware/efi" ]; then
+            mkdir -p $TARGET/boot
+            mount "$ARCH_EFI" $TARGET/boot
+            EFI_DIR="/boot"
+        fi
+        
         read -p "Enable dual-boot Windows detection (os-prober)? (y/N): " MANUAL_PROBER
         if [[ "$MANUAL_PROBER" =~ ^[Yy]$ ]]; then
             GRUB_OS_PROBER="false"
@@ -344,14 +370,14 @@ elif lspci | grep -iq intel; then
 fi
 
 # =====================================================================
-#             DESKTOP ENVIRONMENT SELECTION
+#              DESKTOP ENVIRONMENT SELECTION
 # =====================================================================
 echo ""
 echo "----------------------------------------------------------"
 echo "Select your primary Graphical Desktop Workspace:"
 echo " [1] Hyprland    (Modern, Hardware-Accelerated Tiling Manager)"
 echo " [2] KDE Plasma (Feature-Rich, Traditional, Familiar Desktop)"
-echo " [3] XFCE       (Lightweight, Ultra-Stable Core Matrix)"
+echo " [3] XFCE        (Lightweight, Ultra-Stable Core Matrix)"
 echo "----------------------------------------------------------"
 read -p "Enter Desktop choice (1-3): " DE_CHOICE
 
@@ -372,11 +398,11 @@ case $DE_CHOICE in
 esac
 
 # =====================================================================
-#             ADMINISTRATIVE ACCOUNT CONFIGURATION
+#              ADMINISTRATIVE ACCOUNT CONFIGURATION
 # =====================================================================
 echo ""
 echo "----------------------------------------------------------"
-echo "            ADMINISTRATIVE USER ACCOUNT CREATION          "
+echo "             ADMINISTRATIVE USER ACCOUNT CREATION          "
 echo "----------------------------------------------------------"
 read -p "Enter new account username: " username
 
@@ -405,7 +431,7 @@ else
 fi
 
 # =====================================================================
-#             EXECUTE CHROOT PROFILE PROVISIONING USER MATRIX
+#              EXECUTE CHROOT PROFILE PROVISIONING USER MATRIX
 # =====================================================================
 echo "[INFO] Configuring user credentials and group management rules..."
 
@@ -417,15 +443,15 @@ echo "root:$user_password" | arch-chroot $TARGET chpasswd
 # Uncomment the standard administrative elevation parameter inside sudoers
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' $TARGET/etc/sudoers
 
-# ADDED FIX: Generate basic system localization parameters natively
+# Generate basic system localization parameters natively
 echo "en_US.UTF-8 UTF-8" > $TARGET/etc/locale.gen
 arch-chroot $TARGET locale-gen
 echo "LANG=en_US.UTF-8" > $TARGET/etc/locale.conf
 
-# ADDED FIX: Configure hardware clock to universal standard
+# Configure hardware clock to universal standard
 arch-chroot $TARGET hwclock --systohc
 
-# ADDED FIX: Apply a safe wrapper around service deployments to prevent false script aborts
+# Apply a safe wrapper around service deployments to prevent false script aborts
 echo "[INFO] Enabling hardware daemon services (Bluetooth, Networking)..."
 arch-chroot $TARGET systemctl enable sddm.service || true
 arch-chroot $TARGET systemctl enable NetworkManager.service || true
@@ -434,8 +460,16 @@ arch-chroot $TARGET systemctl enable bluetooth.service || true
 # Configure GRUB parameters safely
 echo "GRUB_DISABLE_OS_PROBER=$GRUB_OS_PROBER" >> $TARGET/etc/default/grub
 
-echo "[INFO] Installing GRUB bootloader payload..."
-arch-chroot $TARGET grub-install --target=x86_64-efi --efi-directory=$EFI_DIR --bootloader-id=ArchLinux --recheck
+# INTERNALS UPDATE: Adaptive Bootloader deployment pipeline
+echo "[INFO] Executing system hardware architecture validation routines..."
+if [ -d "/sys/firmware/efi" ]; then
+    echo "[INFO] Firmware Hook Confirmed: MODERN UEFI TARGET DETECTED"
+    arch-chroot $TARGET grub-install --target=x86_64-efi --efi-directory=$EFI_DIR --bootloader-id=ArchLinux --recheck
+else
+    echo "[INFO] Firmware Hook Confirmed: LEGACY BIOS TARGET DETECTED (Lenovo G560 Compatibility Mode)"
+    # Targets raw disk block header (e.g., /dev/sda), not an internal partition handle
+    arch-chroot $TARGET grub-install --target=i386-pc "$TARGET_DRIVE" --recheck
+fi
 
 # If Online, map our Flatpak containers setup
 if [ "$INSTALL_MODE" == "1" ]; then
