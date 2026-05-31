@@ -1,10 +1,29 @@
+# --- CRITICAL SYSTEM REPO TOOLS ---
+ntfs-3g
 networkmanager
-bluez
-bluez-utils
-blueman
+flatpak
+
+# --- BACKEND AUDIO STACK ---
 pipewire
 pipewire-pulse
 wireplumber
+
+# --- BLUETOOTH HARDWARE ENGINE ---
+bluez
+bluez-utils
+blueman
+
+# --- LAPTOP UTILITIES ---
 brightnessctl
+
+# --- OFFLINE GRAPHICS DRIVERS PACK ---
+nvidia
+nvidia-utils
+xf86-video-amdgpu
+xf86-video-intel
+intel-media-driver
+
+# --- PRE-BAKED OFFLINE WORKSPACE APPS ---
+firefox
+chromium
 libreoffice-fresh
-flatpak
