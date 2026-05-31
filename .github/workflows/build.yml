@@ -17,9 +17,8 @@ jobs:
 
       - name: Initialize System & Install Archiso
         run: |
-          # Generate a stable baseline mirror list for the host container first
-          echo "Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch" > /etc/pacman.conf.tmp
-          echo "Server = https://mirror.rackspace.com/archlinux/$repo/os/$arch" >> /etc/pacman.conf.tmp
+          # Ensure the host container has multilib active to avoid installation conflicts
+          sed -i '/\[multilib\]/,+1 s/^#//' /etc/pacman.conf || true
           
           pacman -Syu --noconfirm
           pacman -S --noconfirm archiso git dos2unix
@@ -29,34 +28,14 @@ jobs:
           # Copy the stock Arch template profile
           cp -r /usr/share/archiso/configs/releng/ ./build_profile
           
-          # Wipe the default template config and write a fresh, perfectly mapped one
-          cat << 'EOF' > ./build_profile/pacman.conf
-          [options]
-          HoldPkg     = pacman glibc
-          Architecture = auto
-          Color
-          CheckSpace
-          ParallelDownloads = 5
-          SigLevel    = Required DatabaseOptional
-          LocalFileSigLevel = Optional
-
-          [core]
-          Server = https://geo.mirror.pkgbuild.com/$core/os/$arch
-          Server = https://mirror.rackspace.com/archlinux/$core/os/$arch
-
-          [extra]
-          Server = https://geo.mirror.pkgbuild.com/$extra/os/$arch
-          Server = https://mirror.rackspace.com/archlinux/$extra/os/$arch
-
-          [multilib]
-          Server = https://geo.mirror.pkgbuild.com/$multilib/os/$arch
-          Server = https://mirror.rackspace.com/archlinux/$multilib/os/$arch
-          EOF
+          # FIX: Read the working host pacman.conf, strip comments out, and make sure extra and multilib are fully active
+          sed -i '/\[extra\]/,+1 s/^#//' ./build_profile/pacman.conf || true
+          sed -i '/\[multilib\]/,+1 s/^#//' ./build_profile/pacman.conf || true
           
           # Scrub invisible Windows formatting from the package list
           dos2unix packages.x86_64
           
-          # Dynamic target patch: Replace old 'nvidia' string with modern upstream 'nvidia-open'
+          # Dynamic target patch: Swap nvidia to nvidia-open for modern repository naming
           sed -i 's/^nvidia$/nvidia-open/g' packages.x86_64
           
           # Append your target package tree to the profile
