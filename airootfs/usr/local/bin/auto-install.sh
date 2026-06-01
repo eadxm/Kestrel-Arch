@@ -512,6 +512,13 @@ if [[ "$PERF_CHOICE" =~ ^[Yy]$ || -z "$PERF_CHOICE" ]]; then
         mkdir -p $TARGET/etc/udev/rules.d
         echo 'ACTION=="add|change", KERNEL=="sd[a-z]", ATTR{queue/rotational}=="1", ATTR{queue/scheduler}="bfq"' >> $TARGET/etc/udev/rules.d/60-scheduler.rules
     fi
+
+    # === ADDED HERE ===
+    if [ -f "/etc/udev/rules.d/90-backlight.rules" ]; then
+        echo "[INFO] Deploying hardware backlight rules to target system..."
+        mkdir -p $TARGET/etc/udev/rules.d
+        cp /etc/udev/rules.d/90-backlight.rules $TARGET/etc/udev/rules.d/
+    fi
 fi
 
 echo "GRUB_DISABLE_OS_PROBER=$GRUB_OS_PROBER" >> $TARGET/etc/default/grub
