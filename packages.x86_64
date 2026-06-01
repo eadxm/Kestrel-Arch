@@ -1,8 +1,24 @@
+# --- CORE BOOT & HARDWARE PERFORMANCE ---
+grub
+efibootmgr
+os-prober
+zram-generator
+earlyoom
+reflector
+
 # --- CRITICAL SYSTEM REPO TOOLS ---
 ntfs-3g
 networkmanager
+iwd
+systemd-timesyncd
 flatpak
 sudo
+
+# --- SYSTEM FONTS ---
+ttf-dejavu
+ttf-liberation
+noto-fonts
+noto-fonts-emoji
 
 # --- BACKEND AUDIO STACK ---
 pipewire
