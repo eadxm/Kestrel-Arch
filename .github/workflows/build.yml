@@ -17,7 +17,7 @@ jobs:
 
       - name: Initialize System & Install Archiso
         run: |
-          # FIX: Initialize the Arch keyring to prevent PGP signature failures in Docker
+          # Initialize the Arch keyring to prevent PGP signature failures in Docker
           pacman-key --init
           pacman-key --populate archlinux
 
@@ -39,6 +39,10 @@ jobs:
           # Scrub invisible Windows formatting from the package list
           dos2unix packages.x86_64
           
+          # DYNAMIC PATCH 1: Swap 'nvidia' to 'nvidia-open' in the package list
+          # Using a looser regex to catch trailing spaces that broke the build last time
+          sed -i 's/^nvidia[[:space:]]*$/nvidia-open/g' packages.x86_64
+          
           # Append your target package tree to the profile
           cat packages.x86_64 >> ./build_profile/packages.x86_64
           
@@ -48,10 +52,13 @@ jobs:
           # Scrub invisible Windows formatting from your installer script
           dos2unix ./build_profile/airootfs/usr/local/bin/auto-install.sh
           
+          # DYNAMIC PATCH 2: Swap the package name inside the Auto-Install script
+          sed -i 's/ nvidia nvidia-utils/ nvidia-open nvidia-utils/g' ./build_profile/airootfs/usr/local/bin/auto-install.sh
+          
           # Grant execution privileges
           chmod +x ./build_profile/airootfs/usr/local/bin/auto-install.sh
           
-          # FIX: Create the systemd targets directory BEFORE trying to symlink into it
+          # Create the systemd targets directory BEFORE trying to symlink into it
           mkdir -p ./build_profile/airootfs/etc/systemd/system/multi-user.target.wants/
           
           # Enable your custom automated setup service on bootup
