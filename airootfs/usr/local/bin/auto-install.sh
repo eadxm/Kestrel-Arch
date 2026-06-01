@@ -32,13 +32,11 @@ error_handler() {
     exit $exit_code
 }
 
-# Bind the error handler to any command returning a non-zero status
 trap 'error_handler $? $LINENO' ERR
 
-# Clear screen for a clean, custom user interface
 clear
 echo "=========================================================="
-echo "          EADXM'S AUTOMATED ARCH ARCHITECT                "
+echo "          EADXM'S AUTOMATED ARCH ARCHITECT v1.3.3         "
 echo "=========================================================="
 echo ""
 echo "Choose your connection architecture:"
@@ -61,9 +59,10 @@ ISO_CACHE="/var/cache/pacman/pkg"
 GRUB_OS_PROBER="true"
 EFI_DIR="/boot"
 ARCH_ROOT=""
+FLATPAK_APP=""
 
-# Base system package matrix (Added 'sudo' and 'sddm' as base requirements)
-CORE_PKGS="base linux linux-firmware grub efibootmgr os-prober ntfs-3g networkmanager bluez bluez-utils blueman pipewire pipewire-pulse wireplumber brightnessctl flatpak xorg-server sddm sudo"
+# Base system package matrix 
+CORE_PKGS="base linux linux-firmware grub efibootmgr os-prober ntfs-3g networkmanager bluez bluez-utils blueman pipewire pipewire-pulse wireplumber brightnessctl flatpak xorg-server sddm sudo zram-generator earlyoom reflector ttf-dejavu ttf-liberation noto-fonts noto-fonts-emoji"
 
 # =====================================================================
 #              DYNAMIC HARDWARE DRIVE DETECTOR & PRE-FLIGHT
@@ -74,11 +73,11 @@ echo "                TARGET DISK SELECTION MODULE               "
 echo "=========================================================="
 echo "[INFO] Scanning for available block storage devices..."
 echo "----------------------------------------------------------"
-lsblk -d -o NAME,SIZE,MODEL,TYPE | grep -E "disk|nvme"
+lsblk -d -o NAME,SIZE,MODEL,TYPE | grep -E "disk|nvme|loop|mmc"
 echo "----------------------------------------------------------"
 
 while true; do
-    read -p "Type your destination installation disk (e.g., /dev/sda or /dev/nvme0n1): " TARGET_DRIVE
+    read -p "Type your destination installation disk (e.g., /dev/sda, /dev/nvme0n1, /dev/mmcblk0): " TARGET_DRIVE
     if [ -b "$TARGET_DRIVE" ]; then
         break
     else
@@ -86,12 +85,11 @@ while true; do
     fi
 done
 
-# Safe Pre-Flight Cleanup: Ensure drive targets aren't locked by ghost mounts
 echo "[INFO] Clearing environmental block locks..."
 umount -R /mnt &>/dev/null || true
 
-# Smart Partition Naming Generator for NVMe/SDA drive compliance
-if [[ "$TARGET_DRIVE" == *"nvme"* ]]; then
+# Smart Partition Naming Generator for NVMe/eMMC/SDA drive compliance
+if [[ "$TARGET_DRIVE" =~ [0-9]$ ]]; then
     PART_PREFIX="p"
 else
     PART_PREFIX=""
@@ -108,12 +106,8 @@ if [ "$INSTALL_MODE" == "1" ]; then
         echo "=========================================================="
         echo "[INFO] Scanning for nearby Wi-Fi networks..."
         echo "----------------------------------------------------------"
-        
-        # Wake up NetworkManager daemon if it's sleeping in the live ISO
         systemctl start NetworkManager &>/dev/null
         sleep 2
-        
-        # Display available SSIDs neatly
         nmcli --fields SSID,BARS,SECURITY device wifi list
         echo "----------------------------------------------------------"
         echo "Type the name (SSID) of your network to connect."
@@ -123,12 +117,8 @@ if [ "$INSTALL_MODE" == "1" ]; then
         
         if [ "$WIFI_SSID" == "CANCEL" ] || [ -z "$WIFI_SSID" ]; then
             echo -e "\n[WARNING] Wi-Fi configuration aborted."
-            echo " [1] Try connecting to Wi-Fi again"
-            echo " [2] Drop down and continue as an OFFLINE installation"
-            echo ""
-            read -p "Selection (1-2): " ESCAPE_CHOICE
-            if [ "$ESCAPE_CHOICE" == "2" ]; then
-                echo "[INFO] Pivoting installer layout to Offline Mode..."
+            read -p "Drop down and continue as OFFLINE installation? (y/N): " ESCAPE_CHOICE
+            if [[ "$ESCAPE_CHOICE" =~ ^[Yy]$ ]]; then
                 INSTALL_MODE="2"
                 sleep 2
                 break
@@ -137,7 +127,6 @@ if [ "$INSTALL_MODE" == "1" ]; then
             fi
         fi
         
-        # PATCHED: Read raw password strings safely to prevent special character escaping & support Open Wi-Fi
         read -r -s -p "Enter Wi-Fi Password (leave blank for Open Network): " WIFI_PASS
         echo -e "\n\n[INFO] Authenticating and linking with $WIFI_SSID..."
         
@@ -153,16 +142,7 @@ if [ "$INSTALL_MODE" == "1" ]; then
             break
         else
             echo -e "\n[ERROR] Connection failed. Incorrect password or poor signal."
-            echo " [1] Try connecting again"
-            echo " [2] Drop down and continue as an OFFLINE installation"
-            echo ""
-            read -p "Selection (1-2): " ESCAPE_CHOICE
-            if [ "$ESCAPE_CHOICE" == "2" ]; then
-                echo "[INFO] Pivoting installer layout to Offline Mode..."
-                INSTALL_MODE="2"
-                sleep 2
-                break
-            fi
+            read -p "Press Enter to try again..."
         fi
     done
 fi
@@ -187,7 +167,6 @@ read -p "Enter your choice (1-5): " USER_CHOICE
 case $USER_CHOICE in
     1)
         echo "====== PROCEEDING WITH SAFE DUAL-BOOT CONFIGURATION ======"
-        # PATCHED: Unallocated Space Safety Interlock Check
         echo -e "\n[WARNING] Dual-Boot requires pre-existing UNALLOCATED SPACE on your drive."
         echo "If you did not manually shrink your Windows C: volume beforehand, ABORT NOW."
         read -p "Do you have free unallocated space verified on $TARGET_DRIVE? (Type 'YES' to proceed): " SPACE_CHECK
@@ -201,8 +180,13 @@ case $USER_CHOICE in
             echo "[ERROR] Unable to locate an existing Windows EFI layout. Aborting."
             exit 1
         fi
+        
         echo ", +" | sfdisk "$TARGET_DRIVE" --force --no-reread &>/dev/null
-        ARCH_ROOT="${TARGET_DRIVE}${PART_PREFIX}3"
+        partprobe "$TARGET_DRIVE"
+        sleep 2
+        
+        ARCH_ROOT=$(lsblk -ln -p -o NAME "$TARGET_DRIVE" | grep -E "^${TARGET_DRIVE}${PART_PREFIX}[0-9]+" | sort -V | tail -n 1)
+        
         mkfs.ext4 -F "$ARCH_ROOT"
         mount "$ARCH_ROOT" $TARGET
         mkdir -p $TARGET/efi
@@ -215,9 +199,7 @@ case $USER_CHOICE in
         echo "====== CRITICAL WARNING: NUKING ALL WINDOWS PARTITIONS ======"
         echo "Clearing partition blocks in 5 seconds... Press Ctrl+C to abort!"
         sleep 5
-        
         if [ -d "/sys/firmware/efi" ]; then
-            echo "[INFO] Environmental Check: Configuring MODERN UEFI Partition Matrix (GPT)..."
             sgdisk --zap-all "$TARGET_DRIVE"
             sgdisk -n 1:0:+1G -t 1:ef00 -c 1:"EFI" "$TARGET_DRIVE"
             sgdisk -n 2:0:0   -t 2:8300 -c 2:"ROOT" "$TARGET_DRIVE"
@@ -230,14 +212,10 @@ case $USER_CHOICE in
             mount "${TARGET_DRIVE}${PART_PREFIX}1" $TARGET/boot
             EFI_DIR="/boot"
         else
-            echo "[INFO] Environmental Check: Configuring LEGACY BIOS Partition Matrix (MBR)..."
             sgdisk --zap-all "$TARGET_DRIVE" &>/dev/null || true
-            
-            echo "label: dos" | sfdisk "$TARGET_DRIVE" &>/dev/null
-            echo ", ," | sfdisk "$TARGET_DRIVE" --force &>/dev/null
+            echo ", +" | sfdisk "$TARGET_DRIVE" --force &>/dev/null
             partprobe "$TARGET_DRIVE"
             sleep 2
-            
             ARCH_ROOT="${TARGET_DRIVE}${PART_PREFIX}1"
             mkfs.ext4 -F "$ARCH_ROOT"
             mount "$ARCH_ROOT" $TARGET
@@ -252,17 +230,14 @@ case $USER_CHOICE in
         lsblk "$TARGET_DRIVE" -o NAME,SIZE,TYPE,FSTYPE
         echo "----------------------------------------------------------"
         read -p "Enter the exact partition to use for Arch ROOT (e.g., /dev/sda3): " ARCH_ROOT
-        
         if [ -d "/sys/firmware/efi" ]; then
             read -p "Enter your system's EFI partition path (e.g., /dev/sda1): " ARCH_EFI
         fi
-        
         read -p "Would you like to format $ARCH_ROOT to ext4? (y/N): " FORMAT_ROOT
         if [[ "$FORMAT_ROOT" =~ ^[Yy]$ ]]; then
             mkfs.ext4 -F "$ARCH_ROOT"
         fi
         mount "$ARCH_ROOT" $TARGET
-        
         if [ -d "/sys/firmware/efi" ]; then
             mkdir -p $TARGET/boot
             mount "$ARCH_EFI" $TARGET/boot
@@ -270,7 +245,6 @@ case $USER_CHOICE in
         else
             EFI_DIR="/boot"
         fi
-        
         read -p "Enable dual-boot Windows detection (os-prober)? (y/N): " MANUAL_PROBER
         if [[ "$MANUAL_PROBER" =~ ^[Yy]$ ]]; then
             GRUB_OS_PROBER="false"
@@ -280,9 +254,7 @@ case $USER_CHOICE in
         ;;
     4)
         echo "====== TARGET NUKE: HUNTING DOWN WINDOWS C: DRIVE ======"
-        # PATCHED: Smart filtering to locate the LARGEST actual OS volume partition instead of small recovery sectors
         C_DRIVE=$(lsblk -b -n -o NAME,FSTYPE "$TARGET_DRIVE" | grep ntfs | awk '{print $1}' | xargs -I {} lsblk -b -n -o NAME,SIZE /dev/{} 2>/dev/null | sort -k2 -n -r | head -n 1 | awk '{print "/dev/"$1}')
-        
         if [ -z "$C_DRIVE" ]; then
             lsblk "$TARGET_DRIVE" -o NAME,SIZE,TYPE,FSTYPE
             read -p "Please type the target Windows partition manually (e.g., /dev/sda2): " C_DRIVE
@@ -335,13 +307,8 @@ if [ "$INSTALL_MODE" == "1" ]; then
     echo " [5] None (Skip browser installation)"
     echo ""
     read -p "Enter browser choice (1-5): " BROWSER_CHOICE
-
     echo ""
-    echo "Do you require the LibreOffice productivity suite (~400MB space)?"
-    echo " [1] Yes, install LibreOffice-Fresh"
-    echo " [2] No, keep the build clean and light"
-    echo ""
-    read -p "Enter office suite choice (1-2): " OFFICE_CHOICE
+    read -p "Do you require the LibreOffice productivity suite? (y/N): " OFFICE_CHOICE
 else
     echo "[OFFLINE MODE ACTIVATED] Restricting options to local ISO assets."
     echo "----------------------------------------------------------"
@@ -351,21 +318,19 @@ else
     echo " [3] None (Skip browser installation)"
     echo ""
     read -p "Enter browser choice (1-3): " BROWSER_CHOICE
-
     echo ""
-    echo "Do you require the pre-baked LibreOffice suite?"
-    echo " [1] Yes, install LibreOffice-Fresh offline"
-    echo " [2] No, keep the build clean and light"
-    echo ""
-    read -p "Enter office suite choice (1-2): " OFFICE_CHOICE
+    read -p "Do you require the pre-baked LibreOffice suite? (y/N): " OFFICE_CHOICE
 fi
 
-# Process Office Suite Queues
-if [ "$OFFICE_CHOICE" == "1" ]; then
+echo ""
+echo "----------------------------------------------------------"
+read -p "Would you like to apply the Hyper-Performance Matrix? (ZRAM, Fast Builds, Optimized I/O) [Y/n]: " PERF_CHOICE
+
+# Process Queues
+if [[ "$OFFICE_CHOICE" =~ ^[Yy]$ ]]; then
     CORE_PKGS="$CORE_PKGS libreoffice-fresh"
 fi
 
-# Process Browser Queues based on Architecture selection
 if [ "$INSTALL_MODE" == "1" ]; then
     case $BROWSER_CHOICE in
         2) CORE_PKGS="$CORE_PKGS firefox" ;;
@@ -378,18 +343,7 @@ else
     esac
 fi
 
-# PATCHED: Removed conditional else-if chains to successfully load composite hybrid/optimus hardware layout drivers
-if lspci | grep -iq nvidia; then
-    CORE_PKGS="$CORE_PKGS nvidia nvidia-utils"
-fi
-if lspci | grep -iq amd; then
-    CORE_PKGS="$CORE_PKGS xf86-video-amdgpu"
-fi
-if lspci | grep -iq intel; then
-    CORE_PKGS="$CORE_PKGS xf86-video-intel intel-media-driver"
-fi
-
-# PATCHED: Dynamically evaluate silicon matrix and inject appropriate microcode patches
+# Dynamically inject silicon microcode patches
 if grep -q "AuthenticAMD" /proc/cpuinfo; then
     CORE_PKGS="$CORE_PKGS amd-ucode"
 elif grep -q "GenuineIntel" /proc/cpuinfo; then
@@ -397,8 +351,28 @@ elif grep -q "GenuineIntel" /proc/cpuinfo; then
 fi
 
 # =====================================================================
-#              DESKTOP ENVIRONMENT SELECTION
+#        🎮 GRAPHICS DRIVER & HYBRID SWITCHEROO ENGINE
 # =====================================================================
+GPU_COUNT=0
+if lspci | grep -iq nvidia; then 
+    CORE_PKGS="$CORE_PKGS nvidia nvidia-utils"
+    ((GPU_COUNT++))
+fi
+if lspci | grep -iq amd; then 
+    CORE_PKGS="$CORE_PKGS xf86-video-amdgpu"
+    ((GPU_COUNT++))
+fi
+if lspci | grep -iq intel; then 
+    CORE_PKGS="$CORE_PKGS xf86-video-intel intel-media-driver"
+    ((GPU_COUNT++))
+fi
+
+# If multiple GPU architectures are mapped, add the D-Bus hardware switch controller
+if [ "$GPU_COUNT" -gt 1 ]; then
+    echo "[INFO] Hybrid Graphics Core detected. Appending Switcheroo Control..."
+    CORE_PKGS="$CORE_PKGS switcheroo-control"
+fi
+
 echo ""
 echo "----------------------------------------------------------"
 echo "Select your primary Graphical Desktop Workspace:"
@@ -409,19 +383,10 @@ echo "----------------------------------------------------------"
 read -p "Enter Desktop choice (1-3): " DE_CHOICE
 
 case $DE_CHOICE in
-    1)
-        CORE_PKGS="$CORE_PKGS hyprland waybar kitty rofi-wayland xdg-desktop-portal-hyprland"
-        ;;
-    2)
-        CORE_PKGS="$CORE_PKGS plasma-desktop plasma-nm power-profiles-daemon kscreen"
-        ;;
-    3)
-        CORE_PKGS="$CORE_PKGS xfce4 xfce4-goodies"
-        ;;
-    *)
-        echo "[WARNING] Invalid selection. Defaulting installation layout to XFCE."
-        CORE_PKGS="$CORE_PKGS xfce4 xfce4-goodies"
-        ;;
+    1) CORE_PKGS="$CORE_PKGS hyprland waybar kitty rofi-wayland xdg-desktop-portal-hyprland" ;;
+    2) CORE_PKGS="$CORE_PKGS plasma-desktop plasma-nm power-profiles-daemon kscreen" ;;
+    3) CORE_PKGS="$CORE_PKGS xfce4 xfce4-goodies" ;;
+    *) CORE_PKGS="$CORE_PKGS xfce4 xfce4-goodies" ;;
 esac
 
 # =====================================================================
@@ -431,20 +396,16 @@ echo ""
 echo "----------------------------------------------------------"
 echo "             SYSTEM IDENTITY & ACCOUNT CREATION            "
 echo "----------------------------------------------------------"
-# PATCHED: Integrated machine network identity prompt mapping
 read -p "Enter a name for this computer (Hostname): " system_hostname
-if [ -z "$system_hostname" ]; then 
-    system_hostname="arch-architect"
-fi
+if [ -z "$system_hostname" ]; then system_hostname="arch-architect"; fi
 
 read -p "Enter new account username: " username
 if [ -z "$username" ]; then
     username="eadxm_user"
-    echo "[INFO] Blind path detected. Defaulting account name to: $username"
+    echo "[INFO] Defaulting account name to: $username"
 fi
 
 echo "Enter secure authentication password for $username:"
-# PATCHED: Added raw input -r flag to accurately record complex symbols/slashes
 read -r -s user_password
 echo ""
 
@@ -468,66 +429,127 @@ fi
 # =====================================================================
 echo "[INFO] Configuring user credentials and group management rules..."
 
-# Provision the user profile with standard interactive access configurations
 arch-chroot $TARGET useradd -m -G wheel -s /bin/bash "$username"
 echo "$username:$user_password" | arch-chroot $TARGET chpasswd
 echo "root:$user_password" | arch-chroot $TARGET chpasswd
 
-# PATCHED: Structural definition of system networking loopbacks and host bindings
 echo "$system_hostname" > $TARGET/etc/hostname
 echo -e "127.0.0.1\tlocalhost\n::1\t\tlocalhost\n127.0.1.1\t$system_hostname.localdomain\t$system_hostname" > $TARGET/etc/hosts
 
-# Uncomment the standard administrative elevation parameter inside sudoers
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' $TARGET/etc/sudoers
 
-# Generate basic system localization parameters natively
 echo "en_US.UTF-8 UTF-8" > $TARGET/etc/locale.gen
 arch-chroot $TARGET locale-gen
 echo "LANG=en_US.UTF-8" > $TARGET/etc/locale.conf
-
-# PATCHED: Hardlink localized UTC fallback to resolve downstream browser SSL/TLS certificate hangs
 arch-chroot $TARGET ln -sf /usr/share/zoneinfo/UTC /etc/localtime
-
-# Configure hardware clock to universal standard
 arch-chroot $TARGET hwclock --systohc
 
-# Apply a safe wrapper around service deployments to prevent false script aborts
-echo "[INFO] Enabling hardware daemon services (Bluetooth, Networking)..."
+if [ "$INSTALL_MODE" == "1" ]; then
+    echo "[INFO] Transferring Network Authentication Matrix to Target..."
+    mkdir -p $TARGET/etc/NetworkManager/system-connections/
+    cp -r /etc/NetworkManager/system-connections/* $TARGET/etc/NetworkManager/system-connections/ 2>/dev/null || true
+fi
+
+echo "[INFO] Enabling hardware daemon services..."
 arch-chroot $TARGET systemctl enable sddm.service || true
 arch-chroot $TARGET systemctl enable NetworkManager.service || true
 arch-chroot $TARGET systemctl enable bluetooth.service || true
+arch-chroot $TARGET systemctl enable systemd-timesyncd.service || true
 
-# Configure GRUB parameters safely
-echo "GRUB_DISABLE_OS_PROBER=$GRUB_OS_PROBER" >> $TARGET/etc/default/grub
-
-# INTERNALS UPDATE: Adaptive Bootloader deployment pipeline
-echo "[INFO] Executing system hardware architecture validation routines..."
-if [ -d "/sys/firmware/efi" ]; then
-    echo "[INFO] Firmware Hook Confirmed: MODERN UEFI TARGET DETECTED"
-    arch-chroot $TARGET grub-install --target=x86_64-efi --efi-directory=$EFI_DIR --bootloader-id=ArchLinux --recheck
-else
-    echo "[INFO] Firmware Hook Confirmed: LEGACY BIOS TARGET DETECTED (Lenovo G560 Compatibility Mode)"
-    arch-chroot $TARGET grub-install --target=i386-pc "$TARGET_DRIVE" --recheck
+# Conditional check for multi-GPU switcher service execution
+if [[ "$CORE_PKGS" == *"switcheroo-control"* ]]; then
+    echo "[INFO] Activating Multi-GPU Switcheroo Interface..."
+    arch-chroot $TARGET systemctl enable switcheroo-control.service || true
 fi
 
-# If Online, map our Flatpak containers setup
 if [ "$INSTALL_MODE" == "1" ]; then
-    echo "[INFO] Deploying flatpak repository bindings..."
-    arch-chroot $TARGET flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-    
-    if [ "$BROWSER_CHOICE" == "1" ]; then
-        echo "[INFO] Downloading and compiling Zen Browser Container..."
-        arch-chroot $TARGET flatpak install flathub app.zen_browser.zen -y
-    elif [ "$BROWSER_CHOICE" == "3" ]; then
-        echo "[INFO] Downloading and compiling Brave Browser Container..."
-        arch-chroot $TARGET flatpak install flathub com.brave.Browser -y
+    arch-chroot $TARGET systemctl enable reflector.timer || true
+fi
+
+mkdir -p $TARGET/etc/bluetooth
+echo -e "\n[Policy]\nAutoEnable=true" >> $TARGET/etc/bluetooth/main.conf
+
+echo "[INFO] Injecting customized terminal profile cosmetics..."
+cat << 'EOF' >> $TARGET/home/$username/.bashrc
+
+# ==========================================
+# Arch Architect Custom Terminal Cosmetics
+# ==========================================
+alias ls='ls --color=auto'
+alias grep='grep --color=auto'
+alias ip='ip -color=auto'
+alias pacman='sudo pacman --color auto'
+alias update='sudo pacman -Syu'
+PS1='\[\e[1;36m\]\u@\h\[\e[0m\]:\[\e[1;34m\]\w\[\e[0m\]\$ '
+EOF
+arch-chroot $TARGET chown -R $username:$username /home/$username
+
+# =====================================================================
+#         🦊 HIGH-PERFORMANCE SYSTEM POWER-CONFIGURATIONS
+# =====================================================================
+if [[ "$PERF_CHOICE" =~ ^[Yy]$ || -z "$PERF_CHOICE" ]]; then
+    echo "[INFO] Injecting internal hardware and package compiler speed enhancements..."
+    arch-chroot $TARGET systemctl enable earlyoom.service || true
+
+    sed -i 's/#MAKEFLAGS="-j2"/MAKEFLAGS="-j$(nproc)"/' $TARGET/etc/makepkg.conf
+    sed -i 's/^COMPRESSZST=.*/COMPRESSZST=(zstd -c -T0 -)/' $TARGET/etc/makepkg.conf
+    sed -i 's/#ParallelDownloads = 5/ParallelDownloads = 10/' $TARGET/etc/pacman.conf
+    sed -i 's/#Color/Color\nILoveCandy/' $TARGET/etc/pacman.conf
+
+    echo -e "[zram0]\nzram-size = ram / 2\ncompression-algorithm = zstd" > $TARGET/etc/systemd/zram-generator.conf
+    sed -i 's/#DefaultTimeoutStopSec=90s/DefaultTimeoutStopSec=15s/' $TARGET/etc/systemd/system.conf
+
+    DRIVE_NAME=$(basename "$TARGET_DRIVE")
+    IS_ROTATIONAL=$(cat /sys/block/$DRIVE_NAME/queue/rotational 2>/dev/null || echo "1")
+
+    if [ "$IS_ROTATIONAL" == "0" ]; then
+        echo "[INFO] Solid State Core Verified. Activating system TRIM triggers..."
+        arch-chroot $TARGET systemctl enable fstrim.timer || true
+    else
+        echo "[INFO] Spinning Hard Disk Detected. Shifting device IO Scheduler to BFQ for smoothness..."
+        mkdir -p $TARGET/etc/udev/rules.d
+        echo 'ACTION=="add|change", KERNEL=="sd[a-z]", ATTR{queue/rotational}=="1", ATTR{queue/scheduler}="bfq"' >> $TARGET/etc/udev/rules.d/60-scheduler.rules
     fi
 fi
 
-# Generate main GRUB configuration image matrix
+echo "GRUB_DISABLE_OS_PROBER=$GRUB_OS_PROBER" >> $TARGET/etc/default/grub
+
+echo "[INFO] Executing system hardware architecture validation routines..."
+if [ -d "/sys/firmware/efi" ]; then
+    arch-chroot $TARGET grub-install --target=x86_64-efi --efi-directory=$EFI_DIR --bootloader-id=ArchLinux --recheck
+else
+    arch-chroot $TARGET grub-install --target=i386-pc "$TARGET_DRIVE" --recheck
+fi
 arch-chroot $TARGET grub-mkconfig -o /boot/grub/grub.cfg
 
-# Generate file system mount table entries accurately
+# =====================================================================
+#      CONTAINER SANDBOX PATCH (First-Boot Systemd Flatpak Engine)
+# =====================================================================
+if [ "$INSTALL_MODE" == "1" ]; then
+    if [ "$BROWSER_CHOICE" == "1" ]; then FLATPAK_APP="app.zen_browser.zen"; fi
+    if [ "$BROWSER_CHOICE" == "3" ]; then FLATPAK_APP="com.brave.Browser"; fi
+    
+    if [ -n "$FLATPAK_APP" ]; then
+        echo "[INFO] Staging Flatpak First-Boot Provisioning Background Service..."
+        cat <<EOF > $TARGET/etc/systemd/system/architect-flatpak.service
+[Unit]
+Description=Arch Architect Container Provisioning
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+ExecStart=/usr/bin/flatpak install flathub $FLATPAK_APP -y
+ExecStartPost=/usr/bin/systemctl disable architect-flatpak.service
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        arch-chroot $TARGET systemctl enable architect-flatpak.service
+    fi
+fi
+
 genfstab -U $TARGET >> $TARGET/etc/fstab
 
 echo "=========================================================="
