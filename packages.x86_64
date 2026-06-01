@@ -10,7 +10,6 @@ reflector
 ntfs-3g
 networkmanager
 iwd
-systemd-timesyncd
 flatpak
 sudo
 
@@ -37,7 +36,6 @@ brightnessctl
 nvidia
 nvidia-utils
 xf86-video-amdgpu
-xf86-video-intel
 intel-media-driver
 switcheroo-control
 
@@ -49,8 +47,9 @@ sddm
 hyprland
 waybar
 kitty
-rofi-wayland
+rofi
 xdg-desktop-portal-hyprland
+polkit-kde-agent
 
 # --- KDE PLASMA WORKSPACE APPS ---
 plasma-desktop
@@ -66,3 +65,5 @@ xfce4-goodies
 firefox
 chromium
 libreoffice-fresh
+qt5-wayland
+qt6-wayland
