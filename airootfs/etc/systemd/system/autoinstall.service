@@ -1,12 +1,21 @@
 [Unit]
-Description=Run Eadxm Automated Arch Linux Installation
+Description=Eadxm Automated Arch Architect
 After=multi-user.target
+# Prevent the default Arch login screen from overwriting our script
+Conflicts=getty@tty1.service
 
 [Service]
 Type=oneshot
 ExecStart=/usr/local/bin/auto-install.sh
+# Bind physical keyboard and screen output directly to the script
+StandardInput=tty-force
 StandardOutput=tty
 StandardError=tty
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+# Prevent Systemd from killing the installer if the user takes too long to answer
+TimeoutStartSec=0
 
 [Install]
 WantedBy=multi-user.target
