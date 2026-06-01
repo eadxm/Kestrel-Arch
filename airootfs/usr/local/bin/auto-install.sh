@@ -485,7 +485,7 @@ EOF
 arch-chroot $TARGET chown -R $username:$username /home/$username
 
 # =====================================================================
-#         🦊 HIGH-PERFORMANCE SYSTEM POWER-CONFIGURATIONS
+#          HIGH-PERFORMANCE SYSTEM POWER-CONFIGURATIONS
 # =====================================================================
 if [[ "$PERF_CHOICE" =~ ^[Yy]$ || -z "$PERF_CHOICE" ]]; then
     echo "[INFO] Injecting internal hardware and package compiler speed enhancements..."
@@ -493,12 +493,14 @@ if [[ "$PERF_CHOICE" =~ ^[Yy]$ || -z "$PERF_CHOICE" ]]; then
 
     sed -i 's/#MAKEFLAGS="-j2"/MAKEFLAGS="-j$(nproc)"/' $TARGET/etc/makepkg.conf
     sed -i 's/^COMPRESSZST=.*/COMPRESSZST=(zstd -c -T0 -)/' $TARGET/etc/makepkg.conf
-    sed -i 's/#ParallelDownloads = 5/ParallelDownloads = 10/' $TARGET/etc/pacman.conf
-    sed -i 's/#Color/Color\nILoveCandy/' $TARGET/etc/pacman.conf
+    
+    # --- EDITED THESE TWO LINES BELOW ---
+    sed -i 's/^#\?ParallelDownloads.*/ParallelDownloads = 10/' $TARGET/etc/pacman.conf
+    sed -i 's/^#\?Color.*/Color\nILoveCandy/' $TARGET/etc/pacman.conf
+    # ------------------------------------
 
     echo -e "[zram0]\nzram-size = ram / 2\ncompression-algorithm = zstd" > $TARGET/etc/systemd/zram-generator.conf
     sed -i 's/#DefaultTimeoutStopSec=90s/DefaultTimeoutStopSec=15s/' $TARGET/etc/systemd/system.conf
-
     DRIVE_NAME=$(basename "$TARGET_DRIVE")
     IS_ROTATIONAL=$(cat /sys/block/$DRIVE_NAME/queue/rotational 2>/dev/null || echo "1")
 
