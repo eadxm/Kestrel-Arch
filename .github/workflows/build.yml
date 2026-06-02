@@ -64,6 +64,9 @@ jobs:
           # Enable your custom automated setup service on bootup
           ln -s /etc/systemd/system/autoinstall.service ./build_profile/airootfs/etc/systemd/system/multi-user.target.wants/autoinstall.service
 
+          # PATCH: Mask the time-sync service to completely neutralize the 15-minute Live USB boot hang
+          ln -sf /dev/null ./build_profile/airootfs/etc/systemd/system/systemd-time-wait-sync.service
+
       - name: Compile Custom ISO Image
         run: |
           mkdir -p ./output
