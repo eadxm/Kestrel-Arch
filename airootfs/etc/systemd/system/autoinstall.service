@@ -1,21 +1,24 @@
 [Unit]
 Description=Eadxm Automated Arch Architect
-After=multi-user.target
-# Prevent the default Arch login screen from overwriting our script
+# Wait for the boot sequence to settle
+After=systemd-user-sessions.service getty@tty1.service
+# Prevent the default Arch login prompt from fighting us for the keyboard
 Conflicts=getty@tty1.service
 
 [Service]
-Type=oneshot
+# 'idle' ensures systemd waits until all other boot text stops before launching
+Type=idle
 ExecStart=/usr/local/bin/auto-install.sh
-# Bind physical keyboard and screen output directly to the script
-StandardInput=tty-force
+
+# Route the script to the physical monitor and keyboard
+StandardInput=tty
 StandardOutput=tty
 StandardError=tty
 TTYPath=/dev/tty1
-TTYReset=yes
-TTYVHangup=yes
-# Prevent Systemd from killing the installer if the user takes too long to answer
+
+# Prevent systemd from killing the script if it takes longer than 90 seconds
 TimeoutStartSec=0
+User=root
 
 [Install]
 WantedBy=multi-user.target
