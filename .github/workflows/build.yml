@@ -49,20 +49,16 @@ jobs:
           # Inject your automated configuration scripts and services
           cp -r airootfs/* ./build_profile/airootfs/
           
-          # Scrub invisible Windows formatting from your installer script
+          # Scrub invisible Windows formatting from your installer script and zlogin hook
           dos2unix ./build_profile/airootfs/usr/local/bin/auto-install.sh
+          dos2unix ./build_profile/airootfs/root/.zlogin || true
           
           # DYNAMIC PATCH 2: Swap the package name inside the Auto-Install script
           sed -i 's/ nvidia nvidia-utils/ nvidia-open nvidia-utils/g' ./build_profile/airootfs/usr/local/bin/auto-install.sh
           
-          # Grant execution privileges
+          # Grant absolute execution privileges to the script and the login hook
           chmod +x ./build_profile/airootfs/usr/local/bin/auto-install.sh
-          
-          # Create the systemd targets directory BEFORE trying to symlink into it
-          mkdir -p ./build_profile/airootfs/etc/systemd/system/multi-user.target.wants/
-          
-          # Enable your custom automated setup service on bootup
-          ln -s /etc/systemd/system/autoinstall.service ./build_profile/airootfs/etc/systemd/system/multi-user.target.wants/autoinstall.service
+          chmod +x ./build_profile/airootfs/root/.zlogin || true
 
           # PATCH: Mask the time-sync service to completely neutralize the 15-minute Live USB boot hang
           ln -sf /dev/null ./build_profile/airootfs/etc/systemd/system/systemd-time-wait-sync.service
