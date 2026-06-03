@@ -27,6 +27,11 @@ sddm
 
 # --- THE SURVIVAL KIT: LIGHTWEIGHT GRAPHICAL USB ENVIRONMENT ---
 xfce4
+xfce4-goodies
 xfce4-terminal
 thunar
 firefox
+
+# --- TERMINALS FOR DESKTOP ENVIRONMENTS ---
+kitty
+konsole
