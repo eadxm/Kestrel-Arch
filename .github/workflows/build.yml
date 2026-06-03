@@ -84,8 +84,8 @@ jobs:
           # 2. Create the hidden cache directory inside the ISO build profile
           mkdir -p ./build_profile/airootfs/opt/offline_cache
           
-          # 3. Download the entire matrix into the hidden cache so mkarchiso cannot delete it
-          pacman -Sw --cachedir ./build_profile/airootfs/opt/offline_cache --noconfirm base linux linux-firmware grub efibootmgr os-prober ntfs-3g networkmanager iwd bluez bluez-utils blueman pipewire pipewire-pulse wireplumber brightnessctl flatpak xorg-server sddm sudo zram-generator earlyoom reflector ttf-dejavu ttf-liberation noto-fonts noto-fonts-emoji curl chaotic-keyring chaotic-mirrorlist parted bc libreoffice-fresh qt5-wayland qt6-wayland firefox librewolf brave-bin amd-ucode intel-ucode nvidia-open nvidia-utils xf86-video-amdgpu intel-media-driver switcheroo-control hyprland waybar kitty rofi xdg-desktop-portal-hyprland polkit-kde-agent thunar gvfs plasma-desktop plasma-workspace plasma-nm power-profiles-daemon kscreen konsole dolphin ark kate spectacle discover packagekit-qt6 sddm-kcm xfce4 xfce4-goodies
+          # 3. Download the entire minimal matrix into the hidden cache
+          pacman -Sw --cachedir ./build_profile/airootfs/opt/offline_cache --noconfirm base linux linux-firmware grub efibootmgr os-prober ntfs-3g networkmanager iwd bluez bluez-utils blueman pipewire pipewire-pulse wireplumber brightnessctl flatpak xorg-server sddm sudo zram-generator earlyoom reflector ttf-dejavu ttf-liberation noto-fonts noto-fonts-emoji curl chaotic-keyring chaotic-mirrorlist parted bc libreoffice-fresh qt5-wayland qt6-wayland firefox librewolf brave-bin amd-ucode intel-ucode nvidia-open nvidia-utils xf86-video-amdgpu intel-media-driver switcheroo-control hyprland waybar kitty rofi xdg-desktop-portal-hyprland polkit-kde-agent thunar gvfs udisks2 kio-extras plasma-desktop plasma-nm konsole dolphin sddm-kcm xfce4 xfce4-terminal xfce4-goodies
 
       - name: Compile Custom ISO Image
         run: |
