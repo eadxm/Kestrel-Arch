@@ -1,3 +1,14 @@
+# --- ARCH LIVE USB ESSENTIALS & INSTALL TOOLS ---
+arch-install-scripts
+base
+bash
+curl
+dosfstools
+e2fsprogs
+nano
+parted
+vim
+
 # --- CORE BOOT & HARDWARE PERFORMANCE ---
 grub
 efibootmgr
@@ -12,6 +23,8 @@ networkmanager
 iwd
 flatpak
 sudo
+chaotic-keyring
+chaotic-mirrorlist
 
 # --- SYSTEM FONTS ---
 ttf-dejavu
@@ -50,12 +63,23 @@ kitty
 rofi
 xdg-desktop-portal-hyprland
 polkit-kde-agent
+thunar
+gvfs
 
 # --- KDE PLASMA WORKSPACE APPS ---
 plasma-desktop
+plasma-workspace
 plasma-nm
 power-profiles-daemon
 kscreen
+konsole
+dolphin
+ark
+kate
+spectacle
+discover
+packagekit-qt6
+sddm-kcm
 
 # --- XFCE WORKSPACE APPS ---
 xfce4
@@ -63,7 +87,8 @@ xfce4-goodies
 
 # --- PRE-BAKED OFFLINE WORKSPACE APPS ---
 firefox
-chromium
+librewolf
+brave-bin
 libreoffice-fresh
 qt5-wayland
 qt6-wayland
