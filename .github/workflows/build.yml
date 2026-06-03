@@ -8,7 +8,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     container:
-      image: archlinux:latest
+      # Swapped to quay.io to bypass Docker Hub rate limits and timeouts
+      image: quay.io/archlinux/archlinux:latest
       options: --privileged 
 
     steps:
