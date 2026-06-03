@@ -1,6 +1,8 @@
 # --- ARCH LIVE USB ESSENTIALS & INSTALL TOOLS ---
 arch-install-scripts
 base
+linux
+linux-firmware
 bash
 curl
 dosfstools
@@ -8,87 +10,23 @@ e2fsprogs
 nano
 parted
 vim
-
-# --- CORE BOOT & HARDWARE PERFORMANCE ---
-grub
-efibootmgr
-os-prober
-zram-generator
-earlyoom
-reflector
-
-# --- CRITICAL SYSTEM REPO TOOLS ---
 ntfs-3g
 networkmanager
 iwd
-flatpak
-sudo
 chaotic-keyring
 chaotic-mirrorlist
 
-# --- SYSTEM FONTS ---
-ttf-dejavu
-ttf-liberation
-noto-fonts
-noto-fonts-emoji
+# --- USB RECOGNITION & MOUNTING ---
+udisks2
+gvfs
+kio-extras
 
-# --- BACKEND AUDIO STACK ---
-pipewire
-pipewire-pulse
-wireplumber
-
-# --- BLUETOOTH HARDWARE ENGINE ---
-bluez
-bluez-utils
-blueman
-
-# --- LAPTOP UTILITIES ---
-brightnessctl
-
-# --- OFFLINE GRAPHICS DRIVERS PACK ---
-nvidia
-nvidia-utils
-xf86-video-amdgpu
-intel-media-driver
-switcheroo-control
-
-# --- DISPLAY SERVER & LOGIN MANAGER ---
+# --- CORE DISPLAY & LOGIN ---
 xorg-server
 sddm
 
-# --- HYPRLAND WORKSPACE APPS ---
-hyprland
-waybar
-kitty
-rofi
-xdg-desktop-portal-hyprland
-polkit-kde-agent
-thunar
-gvfs
-
-# --- KDE PLASMA WORKSPACE APPS ---
-plasma-desktop
-plasma-workspace
-plasma-nm
-power-profiles-daemon
-kscreen
-konsole
-dolphin
-ark
-kate
-spectacle
-discover
-packagekit-qt6
-sddm-kcm
-
-# --- XFCE WORKSPACE APPS ---
+# --- THE SURVIVAL KIT: LIGHTWEIGHT GRAPHICAL USB ENVIRONMENT ---
 xfce4
-xfce4-goodies
-
-# --- PRE-BAKED OFFLINE WORKSPACE APPS ---
+xfce4-terminal
+thunar
 firefox
-librewolf
-brave-bin
-libreoffice-fresh
-qt5-wayland
-qt6-wayland
