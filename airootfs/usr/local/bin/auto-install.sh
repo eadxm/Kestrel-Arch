@@ -320,43 +320,38 @@ case $DE_CHOICE in
 esac
 
 # =====================================================================
-#              ACCOUNT CREATION
-# =====================================================================
-read -p "Enter Hostname: " system_hostname
-system_hostname=$(printf '%s\n' "$system_hostname" | tr -cd 'a-zA-Z0-9-' | tr '[:upper:]' '[:lower:]')
-[ -z "$system_hostname" ] && system_hostname="arch-architect"
-
-read -p "Enter new username: " username
-username=$(printf '%s\n' "$username" | tr -cd 'a-z0-9_')
-[ -z "$username" ] && username="eadxm_user"
-
-while true; do read -r -s -p "Enter secure password: " user_password; echo ""; [ -n "$user_password" ] && break; done
-
-# =====================================================================
 #              INSTALLATION EXECUTION
 # =====================================================================
 clear
 
-# 🚨 PREPARE CHAOTIC AUR IN TARGET BEFORE PACSTRAP 🚨
-mkdir -p "$TARGET/etc/pacman.d"
-echo -e "\n[chaotic-aur]\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> "$TARGET/etc/pacman.conf"
-
 if [ "$INSTALL_MODE" = "2" ]; then
     echo "[INFO] Deploying OFFLINE using local repository cache..."
+    
+    # 1. Dynamically build the offline package database so pacman isn't blind
+    echo "[INFO] Indexing offline packages..."
+    repo-add "$ISO_CACHE/eadxm-offline.db.tar.gz" "$ISO_CACHE"/*.pkg.tar.zst &>/dev/null || true
+
+    # 2. Create the strict air-gapped pacman config
+    cat << EOF > /tmp/offline-pacman.conf
+[options]
+Architecture = auto
+SigLevel = Optional TrustAll
+
+[eadxm-offline]
+SigLevel = Optional TrustAll
+Server = file://$ISO_CACHE/
+EOF
+
+    # 3. Pre-load the target cache for post-install use
     mkdir -p "$TARGET/var/cache/pacman/pkg"
     cp -n "$ISO_CACHE"/* "$TARGET/var/cache/pacman/pkg/" 2>/dev/null || true
     
-    # Sync databases to target so offline pacstrap works
-    mkdir -p "$TARGET/var/lib/pacman/sync"
-    cp -r /var/lib/pacman/sync/* "$TARGET/var/lib/pacman/sync/" 2>/dev/null || true
-    
-    mv /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.bak || true
-    echo "" > /etc/pacman.d/mirrorlist
-    sed -i 's/"--refresh"//g' /usr/bin/pacstrap
-    sed -i 's/-Sy/-S/g' /usr/bin/pacstrap
-    
-    pacstrap -c -K "$TARGET" $CORE_PKGS
-    mv /etc/pacman.d/mirrorlist.bak /etc/pacman.d/mirrorlist || true
+    # 4. Run pacstrap completely offline
+    pacstrap -C /tmp/offline-pacman.conf -K "$TARGET" $CORE_PKGS
+
+    # 5. Restore the standard Arch Linux pacman.conf in the installed system
+    # so the user can use the internet and update properly after reboot
+    cp /etc/pacman.conf "$TARGET/etc/pacman.conf"
 else
     echo "[INFO] Deploying ONLINE..."
     timedatectl set-ntp true
@@ -380,6 +375,10 @@ else
     done
     trap 'error_handler $? $LINENO' ERR 
 fi
+
+# 🚨 INJECT CHAOTIC AUR AFTER PACSTRAP SO IT DOESN'T GET OVERWRITTEN 🚨
+mkdir -p "$TARGET/etc/pacman.d"
+echo -e "\n[chaotic-aur]\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> "$TARGET/etc/pacman.conf"
 
 genfstab -U "$TARGET" >> "$TARGET/etc/fstab"
 
