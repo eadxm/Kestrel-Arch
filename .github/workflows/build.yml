@@ -1,100 +1,72 @@
-name: Bake Eadxm Arch ISO
+name: Build Eadxm Architect ISO
+
 on:
   push:
-    branches: [ main ]
-  workflow_dispatch: 
+    branches: [ "main" ]
+  workflow_dispatch:
 
 jobs:
-  build:
+  build-archiso:
     runs-on: ubuntu-latest
     container:
-      # Swapped to quay.io to bypass Docker Hub rate limits and timeouts
-      image: quay.io/archlinux/archlinux:latest
-      options: --privileged 
+      image: archlinux:latest
+      options: --privileged
 
     steps:
-      - name: Checkout Repository Code
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Initialize System & Install Archiso
+      - name: Install Build Dependencies
         run: |
-          # Initialize the Arch keyring to prevent PGP signature failures in Docker
+          # 🚨 FIX 1: Use Global CDN to prevent random timeout failures
+          echo 'Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch' > /etc/pacman.d/mirrorlist
+          
+          # 🚨 FIX 2: Update keyring FIRST to prevent PGP signature CI crashes
+          pacman -Sy --noconfirm archlinux-keyring
+          
+          # Now it is safe to update the system and install tools
+          pacman -Su --noconfirm
+          pacman -S --noconfirm archiso wget awk mtools dosfstools erofs-utils
+
+      - name: Prepare Offline Package Cache & Dependencies
+        run: |
+          # 1. Create the cache directory inside the ISO structure
+          mkdir -p airootfs/opt/offline_cache
+          
+          # 2. Create the 'local' subfolder so pacman doesn't crash 
+          mkdir -p /tmp/empty_db/local
+          
+          # 3. Setup Chaotic AUR in the GitHub Runner
           pacman-key --init
-          pacman-key --populate archlinux
-
-          # Ensure the host container has multilib active to avoid installation conflicts
-          sed -i '/\[multilib\]/,+1 s/^#//' /etc/pacman.conf || true
-          
-          pacman -Syu --noconfirm
-          pacman -S --noconfirm archiso git dos2unix
-
-      - name: Set Up Custom Profile Architecture
-        run: |
-          # Copy the stock Arch template profile
-          cp -r /usr/share/archiso/configs/releng/ ./build_profile
-          
-          # Read the working host pacman.conf, strip comments out, and make sure extra and multilib are fully active
-          sed -i '/\[extra\]/,+1 s/^#//' ./build_profile/pacman.conf || true
-          sed -i '/\[multilib\]/,+1 s/^#//' ./build_profile/pacman.conf || true
-          
-          # Scrub invisible Windows formatting from the package list
-          dos2unix packages.x86_64
-          
-          # DYNAMIC PATCH 1: Swap 'nvidia' to 'nvidia-open' in the package list
-          sed -i 's/^nvidia[[:space:]]*$/nvidia-open/g' packages.x86_64
-          
-          # Append your target package tree to the profile
-          cat packages.x86_64 >> ./build_profile/packages.x86_64
-          
-          # Inject your automated configuration scripts and services
-          cp -r airootfs/* ./build_profile/airootfs/
-          
-          # Scrub invisible Windows formatting from your installer script and zlogin hook
-          dos2unix ./build_profile/airootfs/usr/local/bin/auto-install.sh
-          dos2unix ./build_profile/airootfs/root/.zlogin || true
-          
-          # DYNAMIC PATCH 2: Swap the package name inside the Auto-Install script
-          sed -i 's/ nvidia nvidia-utils/ nvidia-open nvidia-utils/g' ./build_profile/airootfs/usr/local/bin/auto-install.sh
-          
-          # PATCH: Mask the time-sync service to completely neutralize the 15-minute Live USB boot hang
-          mkdir -p ./build_profile/airootfs/etc/systemd/system/
-          ln -sf /dev/null ./build_profile/airootfs/etc/systemd/system/systemd-time-wait-sync.service
-
-          # PATCH: Fix USB Descriptor error (-110 / -71) by injecting USB timing parameters into all ISO bootloaders
-          sed -i 's/archisolabel/usbcore.old_scheme_first=1 usbcore.initial_descriptor_timeout=5000 archisolabel/g' ./build_profile/syslinux/*.cfg || true
-          sed -i 's/archisolabel/usbcore.old_scheme_first=1 usbcore.initial_descriptor_timeout=5000 archisolabel/g' ./build_profile/efiboot/loader/entries/*.conf || true
-          sed -i 's/archisolabel/usbcore.old_scheme_first=1 usbcore.initial_descriptor_timeout=5000 archisolabel/g' ./build_profile/grub/grub.cfg || true
-
-      - name: Pre-Download Offline Cache & Chaotic-AUR
-        run: |
-          # 1. Setup Chaotic-AUR to access native LibreWolf and Brave inside the GitHub Runner
           pacman-key --recv-key 3056513887B78AEB --keyserver keyserver.ubuntu.com
           pacman-key --lsign-key 3056513887B78AEB
-          pacman -U 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst' --noconfirm
-          pacman -U 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst' --noconfirm
-          
-          # Inject repo into the GitHub Runner so it can download them
+          pacman -U 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst' 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst' --noconfirm
           echo -e "\n[chaotic-aur]\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> /etc/pacman.conf
           
-          # Also inject it into the ISO's pacman.conf so the live USB knows about it during offline install
-          echo -e "\n[chaotic-aur]\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> ./build_profile/pacman.conf
-          
-          pacman -Sy
-          
-          # 2. Create the hidden cache directory inside the ISO build profile
-          mkdir -p ./build_profile/airootfs/opt/offline_cache
-          
-          # 3. Download the TRIMMED minimal matrix into the hidden cache (Bloat removed)
-          pacman -Sw --cachedir ./build_profile/airootfs/opt/offline_cache --noconfirm base linux linux-firmware grub efibootmgr os-prober ntfs-3g networkmanager iwd bluez bluez-utils blueman pipewire pipewire-pulse wireplumber brightnessctl flatpak xorg-server sddm sudo zram-generator earlyoom reflector ttf-dejavu ttf-liberation noto-fonts noto-fonts-emoji curl chaotic-keyring chaotic-mirrorlist parted bc qt5-wayland qt6-wayland amd-ucode intel-ucode nvidia-open nvidia-utils xf86-video-amdgpu intel-media-driver switcheroo-control hyprland waybar kitty rofi xdg-desktop-portal-hyprland polkit-kde-agent thunar gvfs udisks2 kio-extras plasma-desktop plasma-workspace plasma-nm power-profiles-daemon kscreen konsole dolphin ark kate spectacle discover packagekit-qt6 sddm-kcm xfce4 xfce4-terminal
-
-      - name: Compile Custom ISO Image
+          # 4. Download ALL possible packages and their dependencies into the cache folder
+          pacman -Syw --cachedir airootfs/opt/offline_cache --dbpath /tmp/empty_db --noconfirm \
+            base linux linux-firmware grub efibootmgr os-prober ntfs-3g networkmanager iwd bluez bluez-utils blueman \
+            pipewire pipewire-pulse wireplumber brightnessctl flatpak xorg-server sddm sudo zram-generator earlyoom \
+            reflector ttf-dejavu ttf-liberation noto-fonts noto-fonts-emoji curl chaotic-keyring chaotic-mirrorlist parted \
+            amd-ucode intel-ucode nvidia nvidia-utils xf86-video-amdgpu intel-media-driver switcheroo-control \
+            hyprland waybar kitty rofi xdg-desktop-portal-hyprland polkit-kde-agent thunar gvfs \
+            plasma-desktop plasma-workspace plasma-nm power-profiles-daemon kscreen konsole dolphin ark kate spectacle discover packagekit-qt6 sddm-kcm \
+            xfce4 xfce4-terminal xfce4-goodies \
+            librewolf firefox brave-bin libreoffice-fresh qt5-wayland qt6-wayland
+            
+      - name: Index Offline Database
         run: |
-          mkdir -p ./output
-          mkarchiso -v -w /tmp/archiso-workspace -o ./output ./build_profile
+          # 5. Build the database on the server so it is instant during installation
+          cd airootfs/opt/offline_cache
+          repo-add eadxm-offline.db.tar.gz *.pkg.tar.zst
 
-      - name: Upload Finished Bootable ISO Artifact
+      - name: Build the ISO
+        run: |
+          # Output to relative 'out/' dir so GitHub Actions can find it 
+          mkarchiso -v -w /tmp/archiso-tmp -o out/ .
+
+      - name: Upload ISO Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Eadxm-Arch-Architect-ISO
-          path: ./output/*.iso
-          retention-days: 7
+          path: out/*.iso
