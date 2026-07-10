@@ -65,13 +65,18 @@ jobs:
           # 6. Copy the official Arch Linux base profile to a temporary build folder
           cp -r /usr/share/archiso/configs/releng /tmp/eadxm_profile
           
-          # 7. Overlay custom repo files (airootfs, offline cache, etc.) on top of the base profile
+          # 7. Overlay custom repo files (airootfs, offline cache, packages list, etc.) on top of the base profile
           cp -r ./* /tmp/eadxm_profile/
           
-          # 8. Create the output directory
+          # 8. Inject the missing bootloader packages so mkarchiso validates successfully
+          echo "syslinux" >> /tmp/eadxm_profile/packages.x86_64
+          echo "memtest86+" >> /tmp/eadxm_profile/packages.x86_64
+          echo "edk2-shell" >> /tmp/eadxm_profile/packages.x86_64
+          
+          # 9. Create the output directory
           mkdir -p out/
           
-          # 9. Build the ISO pointing to the fully assembled profile
+          # 10. Build the ISO pointing to the fully assembled profile
           mkarchiso -v -w /tmp/archiso-tmp -o out/ /tmp/eadxm_profile/
 
       - name: Upload ISO Artifact
