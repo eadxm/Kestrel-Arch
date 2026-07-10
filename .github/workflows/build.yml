@@ -18,10 +18,10 @@ jobs:
 
       - name: Install Build Dependencies
         run: |
-          # 🚨 FIX 1: Use Global CDN to prevent random timeout failures
+          # Use Global CDN to prevent random timeout failures
           echo 'Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch' > /etc/pacman.d/mirrorlist
           
-          # 🚨 FIX 2: Update keyring FIRST to prevent PGP signature CI crashes
+          # Update keyring FIRST to prevent PGP signature CI crashes
           pacman -Sy --noconfirm archlinux-keyring
           
           # Now it is safe to update the system and install tools
@@ -62,8 +62,17 @@ jobs:
 
       - name: Build the ISO
         run: |
-          # Output to relative 'out/' dir so GitHub Actions can find it 
-          mkarchiso -v -w /tmp/archiso-tmp -o out/ .
+          # 6. Copy the official Arch Linux base profile to a temporary build folder
+          cp -r /usr/share/archiso/configs/releng /tmp/eadxm_profile
+          
+          # 7. Overlay custom repo files (airootfs, offline cache, etc.) on top of the base profile
+          cp -r ./* /tmp/eadxm_profile/
+          
+          # 8. Create the output directory
+          mkdir -p out/
+          
+          # 9. Build the ISO pointing to the fully assembled profile
+          mkarchiso -v -w /tmp/archiso-tmp -o out/ /tmp/eadxm_profile/
 
       - name: Upload ISO Artifact
         uses: actions/upload-artifact@v4
