@@ -18,74 +18,52 @@ jobs:
 
       - name: Install Build Dependencies
         run: |
-          # 1. Use Global CDN to prevent random timeout failures
           echo 'Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch' > /etc/pacman.d/mirrorlist
-          
-          # 2. Update keyring FIRST to prevent PGP signature CI crashes
           pacman -Sy --noconfirm archlinux-keyring
-          
-          # 3. Safely update the system and install archiso tools
           pacman -Su --noconfirm
           pacman -S --noconfirm archiso wget awk mtools dosfstools erofs-utils
 
-      - name: Prepare Offline Package Cache & Dependencies
+      - name: Prepare Dependencies
         run: |
-          # 4. Create the cache directory inside the ISO structure
           mkdir -p airootfs/opt/offline_cache
-          
-          # 5. Create the 'local' subfolder so pacman doesn't crash 
           mkdir -p /tmp/empty_db/local
-          
-          # 6. Setup Chaotic AUR in the GitHub Runner so it can download the packages
           pacman-key --init
           pacman-key --recv-key 3056513887B78AEB --keyserver keyserver.ubuntu.com
           pacman-key --lsign-key 3056513887B78AEB
           pacman -U 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst' 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst' --noconfirm
           echo -e "\n[chaotic-aur]\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> /etc/pacman.conf
-          
-          # 7. Download ALL possible packages and their dependencies into the cache folder
           pacman -Syw --cachedir airootfs/opt/offline_cache --dbpath /tmp/empty_db --noconfirm \
-            base linux linux-firmware grub efibootmgr os-prober ntfs-3g networkmanager iwd bluez bluez-utils blueman \
-            pipewire pipewire-pulse wireplumber brightnessctl flatpak xorg-server sddm sudo zram-generator earlyoom \
-            reflector ttf-dejavu ttf-liberation noto-fonts noto-fonts-emoji curl chaotic-keyring chaotic-mirrorlist parted \
-            amd-ucode intel-ucode nvidia nvidia-utils xf86-video-amdgpu intel-media-driver switcheroo-control \
-            hyprland waybar kitty rofi xdg-desktop-portal-hyprland polkit-kde-agent thunar gvfs \
-            plasma-desktop plasma-workspace plasma-nm power-profiles-daemon kscreen konsole dolphin ark kate spectacle discover packagekit-qt6 sddm-kcm \
-            xfce4 xfce4-terminal xfce4-goodies \
-            librewolf firefox brave-bin libreoffice-fresh qt5-wayland qt6-wayland
-            
+            base linux linux-firmware grub efibootmgr ntfs-3g networkmanager iwd \
+            hyprland waybar kitty rofi thunar gvfs plasma-desktop sddm
+
       - name: Index Offline Database
         run: |
-          # 8. Build the database on the server so it is instant during installation
           cd airootfs/opt/offline_cache
           repo-add eadxm-offline.db.tar.gz *.pkg.tar.zst
 
       - name: Build the ISO
         run: |
-          # 9. Copy the official Arch Linux base profile to a temporary build folder
+          # 1. Copy base profile
           cp -r /usr/share/archiso/configs/releng /tmp/eadxm_profile
-          
-          # 10. Overlay custom repo files (airootfs, offline cache, custom packages list, etc.)
           cp -r ./* /tmp/eadxm_profile/
           
-          # 11. 🚨 FIX: THE INVISIBLE WINDOWS BUG 🚨
-          # Strip Windows carriage returns (\r) and delete blank lines so mkarchiso/pacman don't choke
+          # 2. FIX: Force ISO Label and sync boot configurations
+          sed -i 's/^iso_label=".*"/iso_label="EADXM_ISO"/' /tmp/eadxm_profile/profiledef.sh
+          sed -i 's/archisolabel=[^ ]*/archisolabel=EADXM_ISO/g' /tmp/eadxm_profile/syslinux/syslinux.cfg
+          sed -i 's/archisolabel=[^ ]*/archisolabel=EADXM_ISO/g' /tmp/eadxm_profile/efiboot/loader/entries/*.conf 2>/dev/null || true
+          
+          # 3. Clean up CRLF and inject Chaotic AUR
           sed -i 's/\r//g' /tmp/eadxm_profile/packages.x86_64
           sed -i '/^[[:space:]]*$/d' /tmp/eadxm_profile/packages.x86_64
-          
-          # 12. 🚨 FIX: INJECT CHAOTIC AUR INTO THE ISO PROFILE 🚨
-          # mkarchiso uses its OWN internal pacman.conf. We must add Chaotic AUR to it directly.
           echo -e "\n[chaotic-aur]\nSigLevel = Optional TrustAll\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> /tmp/eadxm_profile/pacman.conf
           
-          # 13. Inject the missing bootloader packages so mkarchiso validates successfully
+          # 4. Inject bootloader essentials
           echo "syslinux" >> /tmp/eadxm_profile/packages.x86_64
           echo "memtest86+" >> /tmp/eadxm_profile/packages.x86_64
           echo "edk2-shell" >> /tmp/eadxm_profile/packages.x86_64
           
-          # 14. Create the output directory
+          # 5. Build
           mkdir -p out/
-          
-          # 15. Build the ISO pointing to the fully assembled profile
           mkarchiso -v -w /tmp/archiso-tmp -o out/ /tmp/eadxm_profile/
 
       - name: Upload ISO Artifact
