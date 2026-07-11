@@ -18,94 +18,95 @@ jobs:
 
       - name: Install Build Dependencies
         run: |
-          # Use a global CDN mirror to prevent random timeout failures
           echo 'Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch' > /etc/pacman.d/mirrorlist
-
-          # Update the keyring FIRST to prevent PGP signature CI crashes
           pacman -Sy --noconfirm archlinux-keyring
-
-          # Safely update the system and install archiso build tools.
-          # NOTE: the awk package is called "gawk" on Arch (there is no
-          # package literally named "awk"). squashfs-tools and
-          # pacman-contrib are added because mkarchiso needs mksquashfs
-          # (releng's default image format) and repo-add (used below)
-          # respectively -- neither is pulled in automatically.
           pacman -Su --noconfirm
           pacman -S --noconfirm archiso wget gawk mtools dosfstools erofs-utils squashfs-tools pacman-contrib
 
       - name: Prepare Offline Package Cache & Dependencies
         run: |
-          # Create the cache directory inside the ISO structure
           mkdir -p airootfs/opt/offline_cache
-
-          # Create the 'local' subfolder so pacman doesn't crash
           mkdir -p /tmp/empty_db/local
-
-          # Setup Chaotic AUR in the GitHub Runner so it can download the packages
+          
           pacman-key --init
           pacman-key --recv-key 3056513887B78AEB --keyserver keyserver.ubuntu.com
           pacman-key --lsign-key 3056513887B78AEB
           pacman -U 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst' 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst' --noconfirm
           echo -e "\n[chaotic-aur]\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> /etc/pacman.conf
 
-          # Download ALL possible packages and their dependencies into the cache folder.
-          # This list is for the TARGET install only (what install.sh's offline
-          # pacstrap call needs) -- it is intentionally NOT the live ISO's own
-          # packages.x86_64, which is handled separately below.
+          # Added kitty, foot, zenity, zen-browser-bin, and rofi-wayland
           pacman -Syw --cachedir airootfs/opt/offline_cache --dbpath /tmp/empty_db --noconfirm \
             base linux linux-firmware grub efibootmgr os-prober ntfs-3g networkmanager iwd bluez bluez-utils blueman \
             pipewire pipewire-pulse wireplumber brightnessctl flatpak xorg-server sddm sudo zram-generator earlyoom \
             reflector ttf-dejavu ttf-liberation noto-fonts noto-fonts-emoji curl chaotic-keyring chaotic-mirrorlist parted \
             amd-ucode intel-ucode nvidia nvidia-utils xf86-video-amdgpu intel-media-driver switcheroo-control \
-            hyprland waybar kitty rofi xdg-desktop-portal-hyprland polkit-kde-agent thunar gvfs \
+            hyprland waybar kitty foot rofi-wayland xdg-desktop-portal-hyprland polkit-kde-agent thunar gvfs \
             plasma-desktop plasma-workspace plasma-nm power-profiles-daemon kscreen konsole dolphin ark kate spectacle discover packagekit-qt6 sddm-kcm \
             xfce4 xfce4-terminal xfce4-goodies \
-            librewolf firefox brave-bin libreoffice-fresh qt5-wayland qt6-wayland
+            zen-browser-bin libreoffice-fresh qt5-wayland qt6-wayland zenity git stow
 
       - name: Index Offline Database
         run: |
-          # Build the database on the server so it is instant during installation
           cd airootfs/opt/offline_cache
           repo-add eadxm-offline.db.tar.gz *.pkg.tar.zst
 
       - name: Build the ISO
         run: |
-          # Start from Arch's own reference profile UNTOUCHED. This is what
-          # keeps mkinitcpio-archiso, syslinux, grub, efibootmgr, memtest86+,
-          # etc. in place -- the packages that actually let the ISO boot.
-          # We only ADD to this profile below; we never blanket-overwrite
-          # its packages.x86_64 / profiledef.sh / pacman.conf, because doing
-          # that is what was silently dropping mkinitcpio-archiso before
-          # (that package supplies the "archiso" mkinitcpio hook -- without
-          # it, the initramfs has nothing that can find and mount the ISO,
-          # which is exactly the "mounting '' on real root" failure).
           cp -r /usr/share/archiso/configs/releng /tmp/eadxm_profile
-
-          # Add Chaotic AUR to the profile's OWN build-time pacman.conf.
-          # mkarchiso does not read /etc/pacman.conf for this -- it has its
-          # own copy inside the profile.
           echo -e "\n[chaotic-aur]\nSigLevel = Optional TrustAll\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> /tmp/eadxm_profile/pacman.conf
-
-          # Add only what the LIVE environment itself needs, on top of
-          # releng's already-complete list. zsh is required because
-          # install.sh's error handler drops into /bin/zsh on failure.
-          # Desktop/browser packages do NOT belong here -- those are
-          # installed onto the TARGET disk later, from the offline cache,
-          # by install.sh's own pacstrap call.
           echo "zsh" >> /tmp/eadxm_profile/packages.x86_64
 
-          # Copy the installer into the live filesystem (airootfs/root/ on
-          # the profile becomes /root/ on the booted ISO), stripping any
-          # Windows line endings so bash doesn't choke on it, then mark it
-          # executable. 
-          # THE FIX: Point sed to the exact location of install.sh in your repo
+          # 1. Setup the installer
           mkdir -p /tmp/eadxm_profile/airootfs/root
           sed 's/\r$//' airootfs/usr/local/bin/install.sh > /tmp/eadxm_profile/airootfs/root/install.sh
           chmod +x /tmp/eadxm_profile/airootfs/root/install.sh
+          echo "/root/install.sh" >> /tmp/eadxm_profile/airootfs/root/.zlogin
 
-          # Copy the pre-built offline package cache into the live
-          # filesystem too (airootfs/opt/ -> /opt/ on the booted ISO),
-          # matching install.sh's ISO_CACHE="/opt/offline_cache".
+          # 2. Inject the Universal First-Boot Dotfile App
+          mkdir -p /tmp/eadxm_profile/airootfs/usr/local/bin
+          cat << 'EOF' > /tmp/eadxm_profile/airootfs/usr/local/bin/eadxm-welcome.sh
+          #!/bin/bash
+          sleep 2
+          CHOICE=$(zenity --list --title="Eadxm OS Setup" --text="Choose your System Profile:" --radiolist --column="Select" --column="Profile" TRUE "Basic (No Customization)" FALSE "Low-End PC (Optimized UI)" FALSE "High-End PC (Calaestia Theme)")
+          
+          # Detect DE
+          if [ "$XDG_CURRENT_DESKTOP" = "Hyprland" ]; then DE_DIR="hyprland"
+          elif [ "$XDG_CURRENT_DESKTOP" = "KDE" ]; then DE_DIR="kde"
+          else DE_DIR="xfce"; fi
+          
+          case "$CHOICE" in
+              "Basic"*) DOT_PATH="/opt/dotfiles/basic/$DE_DIR" ;;
+              "Low-End"*) DOT_PATH="/opt/dotfiles/lowend/$DE_DIR" ;;
+              "High-End"*) DOT_PATH="/opt/dotfiles/highend/$DE_DIR" ;;
+          esac
+          
+          if [ -d "$DOT_PATH" ]; then cp -rT "$DOT_PATH" ~/.config/; fi
+          
+          # Cleanup so it only runs once
+          rm -f ~/.config/autostart/eadxm-welcome.desktop
+          sed -i '/eadxm-welcome.sh/d' ~/.config/hypr/hyprland.conf
+          zenity --info --text="Profile applied! Logging out to apply changes..."
+          loginctl terminate-user $USER
+          EOF
+          chmod +x /tmp/eadxm_profile/airootfs/usr/local/bin/eadxm-welcome.sh
+
+          # 3. Setup Desktop Autostart Hooks (For KDE/XFCE and Hyprland)
+          mkdir -p /tmp/eadxm_profile/airootfs/etc/skel/.config/autostart
+          mkdir -p /tmp/eadxm_profile/airootfs/etc/skel/.config/hypr
+          
+          cat << 'EOF' > /tmp/eadxm_profile/airootfs/etc/skel/.config/autostart/eadxm-welcome.desktop
+          [Desktop Entry]
+          Type=Application
+          Exec=/usr/local/bin/eadxm-welcome.sh
+          Hidden=false
+          NoDisplay=false
+          X-GNOME-Autostart-enabled=true
+          Name=Eadxm Welcome
+          EOF
+          
+          echo "exec-once = bash /usr/local/bin/eadxm-welcome.sh" > /tmp/eadxm_profile/airootfs/etc/skel/.config/hypr/hyprland.conf
+
+          # 4. Copy the offline cache
           mkdir -p /tmp/eadxm_profile/airootfs/opt
           cp -r airootfs/opt/offline_cache /tmp/eadxm_profile/airootfs/opt/
 
