@@ -1,4 +1,4 @@
-# Eadxm Automated Arch Architect
+# Kestrel Arch: an Automated Arch Architect
 
 An automated, hyper-optimized Arch Linux deployment system built to turn a tedious multi-hour command-line install into a **3-minute, flawless deployment**. Written entirely in pure Bash, it dynamically scales based on your hardware, firmware, and connectivity.
 
