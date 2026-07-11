@@ -33,6 +33,20 @@ error_handler() {
 
 trap 'error_handler $? $LINENO' ERR
 
+spinner() {
+    local pid=$1
+    local delay=0.1
+    local spinstr='|/-\'
+    while [ "$(ps a | awk '{print $1}' | grep $pid)" ]; do
+        local temp=${spinstr#?}
+        printf " [%c]  " "$spinstr"
+        local spinstr=$temp${spinstr%"$temp"}
+        sleep $delay
+        printf "\b\b\b\b\b\b"
+    done
+    printf "    \b\b\b\b"
+}
+
 clear
 echo "=========================================================="
 echo "          EADXM'S AUTOMATED ARCH ARCHITECT v1.15.1        "
@@ -50,11 +64,11 @@ done
 
 TARGET="/mnt"
 ISO_CACHE="/opt/offline_cache"
-GRUB_OS_PROBER="true" # True means DISABLE prober
+GRUB_OS_PROBER="true" 
 EFI_DIR="/boot/efi"
 ARCH_ROOT=""
 
-CORE_PKGS="base linux linux-firmware grub efibootmgr os-prober ntfs-3g networkmanager iwd bluez bluez-utils blueman pipewire pipewire-pulse wireplumber brightnessctl flatpak xorg-server sddm sudo zram-generator earlyoom reflector ttf-dejavu ttf-liberation noto-fonts noto-fonts-emoji curl chaotic-keyring chaotic-mirrorlist parted"
+CORE_PKGS="base linux linux-firmware grub efibootmgr os-prober ntfs-3g networkmanager iwd bluez bluez-utils blueman pipewire pipewire-pulse wireplumber brightnessctl flatpak xorg-server sddm sudo zram-generator earlyoom reflector ttf-dejavu ttf-liberation noto-fonts noto-fonts-emoji curl chaotic-keyring chaotic-mirrorlist parted zenity foot git"
 
 # =====================================================================
 #              DYNAMIC HARDWARE DRIVE DETECTOR
@@ -164,21 +178,20 @@ case $USER_CHOICE in
             mkdir -p "$TARGET/boot"
         fi
         
-        # 🚨 FIX: Allow OS Prober for Safe Multi-Boot 🚨
         if [ "$USER_CHOICE" = "1" ]; then
             GRUB_OS_PROBER="false"
         elif [ "$USER_CHOICE" = "6" ]; then
             read -r -p "Enable OS Prober to find other operating systems? (Y/n): " MANUAL_PROBER
-            if [[ "$MANUAL_PROBER" =~ ^[Nn]$ ]]; then
-                GRUB_OS_PROBER="true"
-            else
-                GRUB_OS_PROBER="false"
-            fi
+            if [[ "$MANUAL_PROBER" =~ ^[Nn]$ ]]; then GRUB_OS_PROBER="true"; else GRUB_OS_PROBER="false"; fi
         fi
         ;;
         
     3)
-        sleep 5
+        echo "====== HARD NUKE: WIPE ENTIRE DRIVE ======"
+        read -r -p "🚨 DANGER: This will wipe EVERYTHING on $TARGET_DRIVE. Type 'YES' to confirm: " CONFIRM_NUKE
+        [ "$CONFIRM_NUKE" != "YES" ] && exit 1
+        
+        sleep 2
         if [ -d "/sys/firmware/efi" ]; then
             sgdisk --zap-all "$TARGET_DRIVE"
             sgdisk -n 1:0:+1G -t 1:ef00 -c 1:"EFI" "$TARGET_DRIVE"
@@ -213,7 +226,6 @@ case $USER_CHOICE in
         done
         
         read -r -p "How much space (in GB) do you want to TAKE from Windows for Arch? (e.g., 50): " ARCH_SIZE_GB
-        
         echo "[INFO] Running NTFS check/repair..."
         ntfsfix "$C_DRIVE" || true
         
@@ -243,7 +255,6 @@ case $USER_CHOICE in
             fsck.fat -a "$WIN_EFI" || true
             mount -t vfat "$WIN_EFI" "$TARGET/boot/efi"
         fi
-        
         GRUB_OS_PROBER="false" 
         ;;
         
@@ -269,11 +280,9 @@ case $USER_CHOICE in
             fsck.fat -a "$WIN_EFI" || true
             mount -t vfat "$WIN_EFI" "$TARGET/boot/efi"
         fi
-        
         GRUB_OS_PROBER="false"
         ;;
     7) 
-        # 🚨 FIX: Drop to actual Zsh instead of exiting 🚨
         /bin/zsh
         exit 0 
         ;;
@@ -282,7 +291,6 @@ esac
 # =====================================================================
 #              ACCOUNT CREATION
 # =====================================================================
-# 🚨 FIX: Added the missing account variables before chroot 🚨
 clear
 echo "=========================================================="
 echo "              STEP 3: ACCOUNT CREATION                    "
@@ -308,23 +316,25 @@ clear
 
 if [ "$INSTALL_MODE" = "1" ]; then
     echo "Select your primary web browser:"
-    echo " [1] LibreWolf (Native - Privacy Hardened)"
-    echo " [2] Firefox   (Native - Standard)"
-    echo " [3] Brave     (Native - Chromium Engine)"
-    echo " [4] None"
-    read -r -p "Choice (1-4): " BROWSER_CHOICE
+    echo " [1] Zen Browser (Default - Recommended)"
+    echo " [2] LibreWolf (Native - Privacy Hardened)"
+    echo " [3] Firefox   (Native - Standard)"
+    echo " [4] Brave     (Native - Chromium Engine)"
+    echo " [5] None"
+    read -r -p "Choice (1-5): " BROWSER_CHOICE
     read -r -p "Require LibreOffice suite? (y/N): " OFFICE_CHOICE
 
     [[ "$OFFICE_CHOICE" =~ ^[Yy]$ ]] && CORE_PKGS="$CORE_PKGS libreoffice-fresh qt5-wayland qt6-wayland"
     case $BROWSER_CHOICE in 
-        1) CORE_PKGS="$CORE_PKGS librewolf" ;; 
-        2) CORE_PKGS="$CORE_PKGS firefox" ;; 
-        3) CORE_PKGS="$CORE_PKGS brave-bin" ;; 
+        1) CORE_PKGS="$CORE_PKGS zen-browser-bin" ;;
+        2) CORE_PKGS="$CORE_PKGS librewolf" ;; 
+        3) CORE_PKGS="$CORE_PKGS firefox" ;; 
+        4) CORE_PKGS="$CORE_PKGS brave-bin" ;; 
     esac
 else
     echo "[INFO] Offline Mode Detected."
-    echo "       Web browsers and LibreOffice will be skipped to keep the ISO size minimal."
-    echo "       You can install them via pacman or flatpak after booting."
+    echo "       Defaulting to Zen Browser to ensure web access post-install."
+    CORE_PKGS="$CORE_PKGS zen-browser-bin"
     echo "----------------------------------------------------------"
     sleep 3
 fi
@@ -346,7 +356,7 @@ echo " [3] XFCE       (Lightweight Core)"
 read -r -p "Choice (1-3): " DE_CHOICE
 
 case $DE_CHOICE in
-    1) CORE_PKGS="$CORE_PKGS hyprland waybar kitty rofi xdg-desktop-portal-hyprland polkit-kde-agent thunar gvfs" ;;
+    1) CORE_PKGS="$CORE_PKGS hyprland waybar kitty rofi-wayland xdg-desktop-portal-hyprland polkit-kde-agent thunar gvfs" ;;
     2) CORE_PKGS="$CORE_PKGS plasma-desktop plasma-workspace plasma-nm power-profiles-daemon kscreen konsole dolphin ark kate spectacle discover packagekit-qt6 sddm-kcm" ;;
     3) CORE_PKGS="$CORE_PKGS xfce4 xfce4-terminal xfce4-goodies" ;;
 esac
@@ -357,7 +367,7 @@ esac
 clear
 
 if [ "$INSTALL_MODE" = "2" ]; then
-    echo "[INFO] Deploying OFFLINE using local repository cache..."
+    echo -n "[INFO] Deploying OFFLINE using local repository cache... "
     
     cat << EOF > /tmp/offline-pacman.conf
 [options]
@@ -372,38 +382,36 @@ EOF
     mkdir -p "$TARGET/var/cache/pacman/pkg"
     cp -n "$ISO_CACHE"/* "$TARGET/var/cache/pacman/pkg/" 2>/dev/null || true
     
-    # Run pacstrap fully offline
-    pacstrap -C /tmp/offline-pacman.conf -K "$TARGET" --noconfirm $CORE_PKGS
-
+    pacstrap -C /tmp/offline-pacman.conf -K "$TARGET" --noconfirm $CORE_PKGS &> /dev/null &
+    spinner $!
+    
+    echo -e "\n[SUCCESS] Base system deployed."
     cp /etc/pacman.conf "$TARGET/etc/pacman.conf"
 else
-    echo "[INFO] Deploying ONLINE..."
+    echo -n "[INFO] Deploying ONLINE... "
     timedatectl set-ntp true
-    
     echo 'Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch' > /etc/pacman.d/mirrorlist
     
-    pacman-key --init || true; pacman-key --populate archlinux || true
+    pacman-key --init >/dev/null 2>&1 || true; pacman-key --populate archlinux >/dev/null 2>&1 || true
+    pacman-key --recv-key 3056513887B78AEB --keyserver keyserver.ubuntu.com >/dev/null 2>&1 || true
+    pacman-key --lsign-key 3056513887B78AEB >/dev/null 2>&1 || true
+    pacman -U 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst' 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst' --noconfirm >/dev/null 2>&1 || true
     
-    pacman-key --recv-key 3056513887B78AEB --keyserver keyserver.ubuntu.com || true
-    pacman-key --lsign-key 3056513887B78AEB || true
-    pacman -U 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst' 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst' --noconfirm || true
-    
-    # 🚨 FIX: Inject Chaotic AUR into the LIVE pacman.conf before pacstrap runs 🚨
     echo -e "\n[chaotic-aur]\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> /etc/pacman.conf
     
     trap - ERR 
     DOWNLOAD_SUCCESS=0
     while [ "$DOWNLOAD_SUCCESS" -eq 0 ]; do
         rm -f "$TARGET/var/lib/pacman/db.lck" 2>/dev/null || true
-        if pacstrap -K "$TARGET" --noconfirm $CORE_PKGS; then DOWNLOAD_SUCCESS=1
+        if pacstrap -K "$TARGET" --noconfirm $CORE_PKGS &> /dev/null & spinner $!; wait $!; then DOWNLOAD_SUCCESS=1
         else read -r -p "Install failed! Retry? (1=Yes, 2=Reboot): " FAIL_CHOICE; [ "$FAIL_CHOICE" = "2" ] && { umount -R "$TARGET"; reboot; }; fi
     done
     trap 'error_handler $? $LINENO' ERR 
+    echo -e "\n[SUCCESS] Base system deployed."
 fi
 
 mkdir -p "$TARGET/etc/pacman.d"
 echo -e "\n[chaotic-aur]\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> "$TARGET/etc/pacman.conf"
-
 genfstab -U "$TARGET" >> "$TARGET/etc/fstab"
 
 # =====================================================================
@@ -469,7 +477,6 @@ else
 fi
 arch-chroot "$TARGET" grub-mkconfig -o /boot/grub/grub.cfg
 
-# 🚨 FIX: Clean unmount before rebooting 🚨
 echo "=========================================================="
 echo "   EADXM'S ARCH COMPILED! REBOOTING IN 5 SECONDS...       "
 echo "=========================================================="
