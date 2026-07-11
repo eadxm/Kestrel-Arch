@@ -8,7 +8,7 @@ error_handler() {
     local exit_code=$1
     local line_number=$2
     echo -e "\n=========================================================="
-    echo "         🚨 CRITICAL FAULT DETECTED BY ARCHITECT 🚨       "
+    echo "         🚨 CRITICAL FAULT DETECTED BY KESTREL 🚨         "
     echo "=========================================================="
     echo "[FAULT] Command failed with exit code: $exit_code"
     echo "[LOCATION] Failed execution occurred on line: $line_number"
@@ -49,7 +49,7 @@ spinner() {
 
 clear
 echo "=========================================================="
-echo "          EADXM'S AUTOMATED ARCH ARCHITECT v1.15.1        "
+echo "              KESTREL ARCH DEPLOYMENT ENGINE              "
 echo "=========================================================="
 echo ""
 echo "Choose your connection architecture:"
@@ -298,11 +298,11 @@ echo "=========================================================="
 
 read -r -p "Enter Hostname for this computer: " system_hostname
 system_hostname=$(printf '%s\n' "$system_hostname" | tr -cd 'a-zA-Z0-9-' | tr '[:upper:]' '[:lower:]')
-[ -z "$system_hostname" ] && system_hostname="arch-architect"
+[ -z "$system_hostname" ] && system_hostname="kestrel-node"
 
 read -r -p "Enter new username: " username
 username=$(printf '%s\n' "$username" | tr -cd 'a-z0-9_')
-[ -z "$username" ] && username="eadxm_user"
+[ -z "$username" ] && username="kestrel_user"
 
 while true; do 
     read -r -s -p "Enter secure password: " user_password; echo ""
@@ -374,7 +374,7 @@ if [ "$INSTALL_MODE" = "2" ]; then
 Architecture = auto
 SigLevel = Optional TrustAll
 
-[eadxm-offline]
+[kestrel-offline]
 SigLevel = Optional TrustAll
 Server = file://$ISO_CACHE/
 EOF
@@ -471,14 +471,14 @@ fi
 
 echo "GRUB_DISABLE_OS_PROBER=$GRUB_OS_PROBER" >> "$TARGET/etc/default/grub"
 if [ -d "/sys/firmware/efi" ]; then
-    arch-chroot "$TARGET" grub-install --target=x86_64-efi --efi-directory="$EFI_DIR" --bootloader-id=ArchLinux --recheck
+    arch-chroot "$TARGET" grub-install --target=x86_64-efi --efi-directory="$EFI_DIR" --bootloader-id=KestrelArch --recheck
 else
     arch-chroot "$TARGET" grub-install --target=i386-pc "$TARGET_DRIVE" --recheck
 fi
 arch-chroot "$TARGET" grub-mkconfig -o /boot/grub/grub.cfg
 
 echo "=========================================================="
-echo "   EADXM'S ARCH COMPILED! REBOOTING IN 5 SECONDS...       "
+echo "   KESTREL ARCH DEPLOYED! REBOOTING IN 5 SECONDS...       "
 echo "=========================================================="
 sleep 5
 trap - ERR
