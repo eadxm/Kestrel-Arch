@@ -1,8 +1,11 @@
+<img width="1024" height="559" alt="image" src="https://github.com/user-attachments/assets/6f6c3e1b-453b-4701-88d7-babf8f060d98" />
+
 # Kestrel Arch: an Automated Arch Architect
 
 An automated, hyper-optimized Arch Linux deployment system built to turn a tedious multi-hour command-line install into a **3-minute, flawless deployment**. Written entirely in pure Bash, it dynamically scales based on your hardware, firmware, and connectivity.
 
 ---
+
 
 ## 🧠 Smart Hardware Recognition Engine
 
@@ -28,7 +31,8 @@ To understand what happens under the hood when you boot the ISO, here is how the
 
 ## 📦 What gets installed? (The Core Software Matrix)
 
-The system bakes in the absolute essentials for a cutting-edge desktop experience, removing all the manual configuration work.
+The system bakes in the absolute essentials for a cutting-edge desktop ex<img width="2816" height="1536" alt="Gemini_Generated_Image_z2nupxz2nupxz2nu" src="https://github.com/user-attachments/assets/ef141009-442b-47ab-a091-9ea0e4b8218d" />
+perience, removing all the manual configuration work.
 
 ### 1. System Core
 * **Kernel:** Stable Linux Rolling Kernel (linux) & Open-source microcode firmware updates (linux-firmware).
