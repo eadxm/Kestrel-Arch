@@ -20,8 +20,21 @@ jobs:
         run: |
           echo 'Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch' > /etc/pacman.d/mirrorlist
           pacman -Sy --noconfirm archlinux-keyring
+          
+          # Added rust, cargo, and gtk4 to compile the native welcome app
           pacman -Su --noconfirm
-          pacman -S --noconfirm archiso wget gawk mtools dosfstools erofs-utils squashfs-tools pacman-contrib
+          pacman -S --noconfirm archiso wget gawk mtools dosfstools erofs-utils squashfs-tools pacman-contrib rust cargo gtk4
+
+      - name: Compile Kestrel Welcome App (Rust)
+        run: |
+          # Compile the Rust UI app before building the ISO
+          cd kestrel-welcome
+          cargo build --release
+          
+          # Stage the compiled binary so the ISO builder can pick it up
+          mkdir -p ../airootfs/usr/local/bin
+          cp target/release/kestrel-welcome ../airootfs/usr/local/bin/
+          chmod +x ../airootfs/usr/local/bin/kestrel-welcome
 
       - name: Prepare Offline Package Cache & Dependencies
         run: |
@@ -34,6 +47,7 @@ jobs:
           pacman -U 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst' 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst' --noconfirm
           echo -e "\n[chaotic-aur]\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> /etc/pacman.conf
 
+          # Downloading all core dependencies + desktop environments + browsers
           pacman -Syw --cachedir airootfs/opt/offline_cache --dbpath /tmp/empty_db --noconfirm \
             base linux linux-firmware grub efibootmgr os-prober ntfs-3g networkmanager iwd bluez bluez-utils blueman \
             pipewire pipewire-pulse wireplumber brightnessctl flatpak xorg-server sddm sudo zram-generator earlyoom \
@@ -42,7 +56,7 @@ jobs:
             hyprland waybar kitty foot rofi-wayland xdg-desktop-portal-hyprland polkit-kde-agent thunar gvfs \
             plasma-desktop plasma-workspace plasma-nm power-profiles-daemon kscreen konsole dolphin ark kate spectacle discover packagekit-qt6 sddm-kcm \
             xfce4 xfce4-terminal xfce4-goodies \
-            zen-browser-bin libreoffice-fresh qt5-wayland qt6-wayland zenity git stow
+            zen-browser-bin libreoffice-fresh qt5-wayland qt6-wayland git stow
 
       - name: Index Offline Database
         run: |
@@ -58,54 +72,34 @@ jobs:
           # 1. Setup the installer
           mkdir -p /tmp/kestrel_profile/airootfs/root
           sed 's/\r$//' airootfs/usr/local/bin/install.sh > /tmp/kestrel_profile/airootfs/root/install.sh
-          chmod +x /tmp/kestrel_profile/airootfs/root/install.sh
-          echo "/root/install.sh" >> /tmp/kestrel_profile/airootfs/root/.zlogin
+          
+          # THE FIX: Force bash to run it, bypassing the need for +x permissions in zsh
+          echo "bash /root/install.sh" >> /tmp/kestrel_profile/airootfs/root/.zlogin
 
-          # 2. Inject the Universal First-Boot Dotfile App
-          mkdir -p /tmp/kestrel_profile/airootfs/usr/local/bin
-          cat << 'EOF' > /tmp/kestrel_profile/airootfs/usr/local/bin/kestrel-welcome.sh
-          #!/bin/bash
-          sleep 2
-          CHOICE=$(zenity --list --title="Kestrel Arch Setup" --text="Choose your System Profile:" --radiolist --column="Select" --column="Profile" TRUE "Basic (No Customization)" FALSE "Low-End PC (Optimized UI)" FALSE "High-End PC (Calaestia Theme)")
-          
-          if [ "$XDG_CURRENT_DESKTOP" = "Hyprland" ]; then DE_DIR="hyprland"
-          elif [ "$XDG_CURRENT_DESKTOP" = "KDE" ]; then DE_DIR="kde"
-          else DE_DIR="xfce"; fi
-          
-          case "$CHOICE" in
-              "Basic"*) DOT_PATH="/opt/dotfiles/basic/$DE_DIR" ;;
-              "Low-End"*) DOT_PATH="/opt/dotfiles/lowend/$DE_DIR" ;;
-              "High-End"*) DOT_PATH="/opt/dotfiles/highend/$DE_DIR" ;;
-          esac
-          
-          if [ -d "$DOT_PATH" ]; then cp -rT "$DOT_PATH" ~/.config/; fi
-          
-          rm -f ~/.config/autostart/kestrel-welcome.desktop
-          sed -i '/kestrel-welcome.sh/d' ~/.config/hypr/hyprland.conf
-          zenity --info --text="Profile applied! Logging out to apply changes..."
-          loginctl terminate-user $USER
-          EOF
-          chmod +x /tmp/kestrel_profile/airootfs/usr/local/bin/kestrel-welcome.sh
-
-          # 3. Setup Desktop Autostart Hooks
+          # 2. Setup Desktop Autostart Hooks (Points to the compiled Rust binary)
           mkdir -p /tmp/kestrel_profile/airootfs/etc/skel/.config/autostart
           mkdir -p /tmp/kestrel_profile/airootfs/etc/skel/.config/hypr
           
           cat << 'EOF' > /tmp/kestrel_profile/airootfs/etc/skel/.config/autostart/kestrel-welcome.desktop
           [Desktop Entry]
           Type=Application
-          Exec=/usr/local/bin/kestrel-welcome.sh
+          Exec=/usr/local/bin/kestrel-welcome
           Hidden=false
           NoDisplay=false
           X-GNOME-Autostart-enabled=true
           Name=Kestrel Welcome
           EOF
           
-          echo "exec-once = bash /usr/local/bin/kestrel-welcome.sh" > /tmp/kestrel_profile/airootfs/etc/skel/.config/hypr/hyprland.conf
+          echo "exec-once = /usr/local/bin/kestrel-welcome" > /tmp/kestrel_profile/airootfs/etc/skel/.config/hypr/hyprland.conf
 
-          # 4. Copy the offline cache
+          # 3. Copy the offline cache and the preconfigured dotfiles
           mkdir -p /tmp/kestrel_profile/airootfs/opt
           cp -r airootfs/opt/offline_cache /tmp/kestrel_profile/airootfs/opt/
+          
+          # Safely copy dotfiles if the directory exists in the repo
+          if [ -d "opt/dotfiles" ]; then
+              cp -r opt/dotfiles /tmp/kestrel_profile/airootfs/opt/
+          fi
 
           mkdir -p out/
           mkarchiso -v -w /tmp/archiso-tmp -o out/ /tmp/kestrel_profile/
