@@ -30,6 +30,8 @@ xfce4
 xfce4-terminal
 thunar
 
-# --- TERMINALS FOR DESKTOP ENVIRONMENTS ---
+# --- TERMINALS & BROWSERS FOR DESKTOP ENVIRONMENTS ---
 kitty
-konsole
+foot
+zenity
+zen-browser-bin
