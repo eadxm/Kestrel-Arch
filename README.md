@@ -1,6 +1,6 @@
 <img width="1024" height="559" alt="image" src="https://github.com/user-attachments/assets/6f6c3e1b-453b-4701-88d7-babf8f060d98" />
 
-# Kestrel Arch: an Automated Arch Architect
+# Kestrel Arch: an Automated Arch Installer
 
 An automated, hyper-optimized Arch Linux deployment system built to turn a tedious multi-hour command-line install into a **3-minute, flawless deployment**. Written entirely in pure Bash, it dynamically scales based on your hardware, firmware, and connectivity.
 
@@ -9,7 +9,7 @@ An automated, hyper-optimized Arch Linux deployment system built to turn a tedio
 
 ## 🧠 Smart Hardware Recognition Engine
 
-Unlike static installers, **Architect** evaluates your specific machine mid-deployment to ensure maximum performance and stability:
+Unlike static installers, **Kestrel** evaluates your specific machine mid-deployment to ensure maximum performance and stability:
 
 **Dynamic CPU Microcode:** Automatically detects Intel or AMD architecture and injects the proper silicon microcode (intel-ucode / amd-ucode) directly into the bootloader.
 
@@ -53,7 +53,7 @@ During installation, the engine will prompt you to choose your interface footpri
 
 ## 🚀 Deployment Methods & Installation Guide
 
-The Eadxm Arch Architect can be deployed in two ways: you can either inject the installer directly into a standard Arch Linux ISO, or use our pre-compiled Custom ISO for an offline-ready experience.
+Kestrel Arch can be deployed in two ways: you can either inject the installer directly into a standard Arch Linux ISO, or use our pre-compiled Custom ISO for an offline-ready experience.
 
 ### 🌐 Method 1: The Payload Injection (Using Official Arch ISO)
 
@@ -76,12 +76,12 @@ Now that you are online, run the following command to download and launch the in
 If you are deploying to a machine without an internet connection, or you want the absolute fastest installation possible, use our pre-compiled Custom ISO.
 
 **Step 1: Download & Flash**
-1. Head over to the [GitHub Releases Page](/../../releases) and grab the latest compiled Eadxm-Arch-Architect-ISO.
+1. Head over to the [GitHub Releases Page](/../../releases) and grab the latest compiled Kestrel-Arch-ISO.
 2. Flash the ISO to a USB drive using `dd mode` in Rufus (choose DD Mode) on Windows or just use 'Ventoy' on either Windows or Linux.
 
 **Step 2: Boot the Target Hardware**
 1. Plug the USB into your target machine and mash your motherboard's boot-menu key (usually F12, F11, F2 or Del).
-2. Select your USB drive. The live Arch image will load and automatically launch the Arch Architect interface menu.
+2. Select your USB drive. The live Arch image will load and automatically launch the Kestrel Arch interface menu.
 
 ---
 
