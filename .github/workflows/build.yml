@@ -43,12 +43,12 @@ jobs:
             hyprland waybar kitty foot rofi-wayland xdg-desktop-portal-hyprland polkit-kde-agent thunar gvfs \
             plasma-desktop plasma-workspace plasma-nm power-profiles-daemon kscreen konsole dolphin ark kate spectacle discover packagekit-qt6 sddm-kcm \
             xfce4 xfce4-terminal xfce4-goodies \
-            zen-browser-bin libreoffice-fresh qt5-wayland qt6-wayland yad git stow
+            zen-browser-bin libreoffice-fresh qt5-wayland qt6-wayland git stow
 
       - name: Index Offline Database
         run: |
           cd airootfs/opt/offline_cache
-          repo-add eadxm-offline.db.tar.gz *.pkg.tar.zst
+          repo-add kestrel-offline.db.tar.gz *.pkg.tar.zst
 
       - name: Build the ISO
         run: |
@@ -61,49 +61,7 @@ jobs:
           sed 's/\r$//' airootfs/usr/local/bin/install.sh > /tmp/kestrel_profile/airootfs/root/install.sh
           echo "bash /root/install.sh" >> /tmp/kestrel_profile/airootfs/root/.zlogin
 
-          # 2. Inject the Bash/Yad Welcome Script
-          mkdir -p /tmp/kestrel_profile/airootfs/usr/local/bin
-          cat << 'EOF' > /tmp/kestrel_profile/airootfs/usr/local/bin/kestrel-welcome.sh
-          #!/bin/bash
-          sleep 2
-          CHOICE=$(yad --list --title="Kestrel Arch Setup" --text="Choose your System Profile:" --radiolist --column="Select" --column="Profile" TRUE "Basic (No Customization)" FALSE "Low-End PC (Optimized UI)" FALSE "High-End PC (Calaestia Theme)")
-          
-          if [ "$XDG_CURRENT_DESKTOP" = "Hyprland" ]; then DE_DIR="hyprland"
-          elif [ "$XDG_CURRENT_DESKTOP" = "KDE" ]; then DE_DIR="kde"
-          else DE_DIR="xfce"; fi
-          
-          case "$CHOICE" in
-              "Basic"*) DOT_PATH="/opt/dotfiles/basic/$DE_DIR" ;;
-              "Low-End"*) DOT_PATH="/opt/dotfiles/lowend/$DE_DIR" ;;
-              "High-End"*) DOT_PATH="/opt/dotfiles/highend/$DE_DIR" ;;
-          esac
-          
-          if [ -d "$DOT_PATH" ]; then cp -rT "$DOT_PATH" ~/.config/; fi
-          
-          rm -f ~/.config/autostart/kestrel-welcome.desktop
-          sed -i '/kestrel-welcome.sh/d' ~/.config/hypr/hyprland.conf
-          yad --info --text="Profile applied! Logging out to apply changes..."
-          loginctl terminate-user $USER
-          EOF
-          chmod +x /tmp/kestrel_profile/airootfs/usr/local/bin/kestrel-welcome.sh
-
-          # 3. Setup Desktop Autostart Hooks (pointing to the bash script)
-          mkdir -p /tmp/kestrel_profile/airootfs/etc/skel/.config/autostart
-          mkdir -p /tmp/kestrel_profile/airootfs/etc/skel/.config/hypr
-          
-          cat << 'EOF' > /tmp/kestrel_profile/airootfs/etc/skel/.config/autostart/kestrel-welcome.desktop
-          [Desktop Entry]
-          Type=Application
-          Exec=/usr/local/bin/kestrel-welcome.sh
-          Hidden=false
-          NoDisplay=false
-          X-GNOME-Autostart-enabled=true
-          Name=Kestrel Welcome
-          EOF
-          
-          echo "exec-once = bash /usr/local/bin/kestrel-welcome.sh" > /tmp/kestrel_profile/airootfs/etc/skel/.config/hypr/hyprland.conf
-
-          # 4. Copy the offline cache
+          # 2. Copy the offline cache
           mkdir -p /tmp/kestrel_profile/airootfs/opt
           cp -r airootfs/opt/offline_cache /tmp/kestrel_profile/airootfs/opt/
 
