@@ -45,7 +45,7 @@ GRUB_OS_PROBER="true"
 EFI_DIR="/boot/efi"
 ARCH_ROOT=""
 
-CORE_PKGS="base linux linux-firmware grub efibootmgr os-prober ntfs-3g networkmanager iwd bluez bluez-utils blueman pipewire pipewire-pulse wireplumber brightnessctl flatpak xorg-server sddm sudo zram-generator earlyoom reflector ttf-dejavu ttf-liberation noto-fonts noto-fonts-emoji curl chaotic-keyring chaotic-mirrorlist parted foot git"
+CORE_PKGS="base linux linux-firmware grub efibootmgr os-prober ntfs-3g networkmanager iwd bluez bluez-utils blueman pipewire pipewire-pulse wireplumber brightnessctl flatpak xorg-server sddm sudo zram-generator earlyoom reflector ttf-dejavu ttf-liberation noto-fonts noto-fonts-emoji curl chaotic-keyring chaotic-mirrorlist parted foot git stow"
 
 if [ -d "$ISO_CACHE" ]; then
     echo "Choose your connection architecture:"
@@ -348,6 +348,11 @@ else
     echo "[INFO] Offline Mode Detected."
     echo "       Defaulting to Zen Browser to ensure web access post-install."
     CORE_PKGS="$CORE_PKGS zen-browser-bin"
+    
+    # THE FIX: Prompt for LibreOffice even when offline
+    read -r -p "Require LibreOffice suite? (y/N): " OFFICE_CHOICE
+    [[ "$OFFICE_CHOICE" =~ ^[Yy]$ ]] && CORE_PKGS="$CORE_PKGS libreoffice-fresh qt5-wayland qt6-wayland"
+    
     echo "----------------------------------------------------------"
     sleep 3
 fi
