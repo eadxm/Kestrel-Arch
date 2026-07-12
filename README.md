@@ -69,7 +69,7 @@ The official Arch ISO boots completely offline. You must connect to the internet
 
 **Step 2: Deploy the Engine**
 Now that you are online, run the following command to download and launch the installer directly from memory:
-`curl -sL kestrel.s.gy/eadxm | bash`
+`bash -c "$(curl -fsSL kestrel.s.gy/eadxm)"`
 
 ### 💽 Method 2: The Custom Architect ISO (Offline / Air-Gapped)
 
