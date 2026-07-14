@@ -6,6 +6,37 @@ use std::thread;
 
 fn main() -> Result<(), slint::PlatformError> {
     let ui = InstallerWindow::new()?;
+    
+    // ==========================================
+    // DASHBOARD LOGIC: Launch Terminal
+    // ==========================================
+    ui.global::<InstallerLogic>().on_launch_terminal(move || {
+        thread::spawn(|| {
+            Command::new("kitty")
+                .spawn()
+                .expect("Failed to launch terminal");
+        });
+    });
+
+    // ==========================================
+    // DASHBOARD LOGIC: Update System
+    // ==========================================
+    ui.global::<InstallerLogic>().on_update_system(move || {
+        thread::spawn(|| {
+            // Launches kitty and immediately runs the pacman update command inside it
+            Command::new("kitty")
+                .arg("-e")
+                .arg("sudo")
+                .arg("pacman")
+                .arg("-Syu")
+                .spawn()
+                .expect("Failed to launch update process");
+        });
+    });
+
+    // ==========================================
+    // INSTALLER LOGIC: Execute Bash Backend
+    // ==========================================
     let ui_handle = ui.as_weak();
     
     ui.global::<InstallerLogic>().on_start_install(move |target_disk| {
