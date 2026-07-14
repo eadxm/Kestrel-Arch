@@ -1,1 +1,127 @@
+import { Button, ComboBox, ProgressIndicator, VerticalBox, HorizontalBox } from "std-widgets.slint";
 
+export global InstallerLogic {
+    callback start_install(string);
+    in property <float> progress: 0.0;
+    in property <string> status_text: "Ready to deploy.";
+}
+
+export component InstallerWindow inherits Window {
+    title: "Kestrel OS Installer";
+    width: 700px;
+    height: 450px;
+    background: #1e1e2e;
+    default-font-family: "sans-serif";
+
+    in-out property <int> active_step: 0;
+    property <string> selected_disk: "/dev/nvme0n1";
+
+    VerticalBox {
+        padding: 40px;
+        spacing: 20px;
+
+        Text {
+            text: "Kestrel OS";
+            font-size: 28px;
+            font-weight: 700;
+            color: #cba6f7;
+            horizontal-alignment: center;
+        }
+
+        // STEP 0: Welcome Screen
+        if (root.active_step == 0) : VerticalBox {
+            alignment: center;
+            spacing: 20px;
+            Text {
+                text: "Welcome to the Kestrel Deployment Environment.";
+                font-size: 16px;
+                color: #cdd6f4;
+                horizontal-alignment: center;
+            }
+            HorizontalBox {
+                alignment: center;
+                Button {
+                    text: "Continue";
+                    primary: true;
+                    clicked => { root.active_step = 1; }
+                }
+            }
+        }
+
+        // STEP 1: Target Choice Screen
+        if (root.active_step == 1) : VerticalBox {
+            alignment: center;
+            spacing: 20px;
+            Text {
+                text: "Select Target Drive";
+                font-size: 18px;
+                color: #cdd6f4;
+                horizontal-alignment: center;
+            }
+            ComboBox {
+                model: ["/dev/nvme0n1", "/dev/sda"];
+                current-value: root.selected_disk;
+                selected(val) => { root.selected_disk = val; }
+            }
+            Text {
+                text: "Warning: This will format the selected drive.";
+                color: #f38ba8;
+                font-size: 12px;
+                horizontal-alignment: center;
+            }
+            HorizontalBox {
+                alignment: center;
+                Button {
+                    text: "Back";
+                    clicked => { root.active_step = 0; }
+                }
+                Button {
+                    text: "Install Kestrel";
+                    primary: true;
+                    clicked => { 
+                        root.active_step = 2; 
+                        InstallerLogic.start_install(root.selected_disk);
+                    }
+                }
+            }
+        }
+
+        // STEP 2: Live Progress Output Screen
+        if (root.active_step == 2) : VerticalBox {
+            alignment: center;
+            spacing: 20px;
+            Text {
+                text: "Deploying System...";
+                font-size: 18px;
+                color: #cdd6f4;
+                horizontal-alignment: center;
+            }
+            ProgressIndicator {
+                progress: InstallerLogic.progress;
+            }
+            Text {
+                text: InstallerLogic.status_text;
+                color: #a6adc8;
+                font-size: 14px;
+                horizontal-alignment: center;
+            }
+        }
+
+        // STEP 3: Complete Screen
+        if (root.active_step == 3) : VerticalBox {
+            alignment: center;
+            spacing: 20px;
+            Text {
+                text: "Installation Complete!";
+                font-size: 24px;
+                color: #a6e3a1;
+                horizontal-alignment: center;
+            }
+            Text {
+                text: "You can safely reboot into your brand new Kestrel installation.";
+                color: #cdd6f4;
+                horizontal-alignment: center;
+            }
+        }
+    }
+}
