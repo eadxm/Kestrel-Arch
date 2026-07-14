@@ -8,7 +8,7 @@ error_handler() {
     local exit_code=$1
     local line_number=$2
     echo -e "\n=========================================================="
-    echo "           CRITICAL FAULT DETECTED BY KESTREL           "
+    echo "         🚨 CRITICAL FAULT DETECTED BY KESTREL 🚨         "
     echo "=========================================================="
     echo "[FAULT] Command failed with exit code: $exit_code"
     echo "[LOCATION] Failed execution occurred on line: $line_number"
@@ -75,7 +75,8 @@ EFI_DIR="/boot/efi"
 ARCH_ROOT=""
 DISPLAY_MANAGER="sddm"
 
-CORE_PKGS="base linux-cachyos linux-cachyos-headers linux-firmware scx-scheds efibootmgr os-prober ntfs-3g networkmanager iwd bluez bluez-utils blueman pipewire pipewire-pulse wireplumber brightnessctl flatpak xorg-server sudo zram-generator earlyoom reflector ttf-dejavu ttf-liberation noto-fonts noto-fonts-emoji curl chaotic-keyring chaotic-mirrorlist parted foot git stow qt5-wayland qt6-wayland"
+# Added switcheroo-control back to core packages
+CORE_PKGS="base linux-cachyos linux-cachyos-headers linux-firmware scx-scheds switcheroo-control efibootmgr os-prober ntfs-3g networkmanager iwd bluez bluez-utils blueman pipewire pipewire-pulse wireplumber brightnessctl flatpak xorg-server sudo zram-generator earlyoom reflector ttf-dejavu ttf-liberation noto-fonts noto-fonts-emoji curl chaotic-keyring chaotic-mirrorlist parted foot git stow qt5-wayland qt6-wayland"
 
 if [ -z "$INSTALL_MODE" ]; then
     if [ -d "$ISO_CACHE" ]; then
@@ -351,6 +352,7 @@ if grep -q "AuthenticAMD" /proc/cpuinfo; then CORE_PKGS="$CORE_PKGS amd-ucode"; 
 
 # Universal Hybrid Graphics Detection Mechanism
 HAS_NVIDIA=0; HAS_INTEGRATED=0
+# nvidia-prime enables the prime-run command for Wayland/WM setups
 if lspci | grep -iq nvidia; then CORE_PKGS="$CORE_PKGS nvidia nvidia-utils nvidia-prime"; HAS_NVIDIA=1; fi
 if lspci | grep -E -iq "amd|intel"; then HAS_INTEGRATED=1; fi
 if lspci | grep -i vga | grep -iq amd; then CORE_PKGS="$CORE_PKGS xf86-video-amdgpu"; fi
@@ -358,7 +360,7 @@ if lspci | grep -i vga | grep -iq intel; then CORE_PKGS="$CORE_PKGS intel-media-
 
 if [ -z "$DE_CHOICE" ]; then
     if [ "$INSTALL_MODE" = "2" ]; then
-        echo "=== OFFLINE DESKTOP ENVIRONMENT ENVIRONMENT SELECTOR ==="
+        echo "=== OFFLINE DESKTOP ENVIRONMENT SELECTOR ==="
         echo " [1] Hyprland   - A visually pleasing dynamic tiling Wayland compositor."
         echo " [2] KDE Plasma - A comprehensive, flexible, highly customizable desktop environment."
         echo " [3] XFCE       - Modern, lightweight, stable, traditional drop-down layout."
@@ -508,7 +510,8 @@ if [ "$INSTALL_MODE" = "1" ]; then
     echo -e "[device]\nwifi.backend=iwd" > "$TARGET/etc/NetworkManager/conf.d/wifi_backend.conf"
 fi
 
-arch-chroot "$TARGET" systemctl enable ${DISPLAY_MANAGER}.service NetworkManager.service iwd.service bluetooth.service systemd-timesyncd.service scx.service
+# Enable Display Manager, Networking, scx scheduling, and switcheroo-control for hybrid rendering UI
+arch-chroot "$TARGET" systemctl enable ${DISPLAY_MANAGER}.service NetworkManager.service iwd.service bluetooth.service systemd-timesyncd.service scx.service switcheroo-control.service || true
 arch-chroot "$TARGET" systemctl mask systemd-time-wait-sync.service
 
 mkdir -p "$TARGET/etc/bluetooth"
