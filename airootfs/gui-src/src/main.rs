@@ -23,7 +23,6 @@ fn main() -> Result<(), slint::PlatformError> {
     // ==========================================
     ui.global::<InstallerLogic>().on_update_system(move || {
         thread::spawn(|| {
-            // Launches kitty and immediately runs the pacman update command inside it
             Command::new("kitty")
                 .arg("-e")
                 .arg("sudo")
@@ -39,14 +38,19 @@ fn main() -> Result<(), slint::PlatformError> {
     // ==========================================
     let ui_handle = ui.as_weak();
     
-    ui.global::<InstallerLogic>().on_start_install(move |target_disk| {
+    ui.global::<InstallerLogic>().on_start_install(move |target_disk, selected_de, selected_boot| {
         let ui_handle = ui_handle.clone();
         
+        // Extract just the number from "1. Hyprland" or "3. rEFInd"
+        let de_num = selected_de.as_str().split('.').next().unwrap_or("1").to_string();
+        let boot_num = selected_boot.as_str().split('.').next().unwrap_or("1").to_string();
+        
         thread::spawn(move || {
-            // Executes the existing bash script inside your live ISO runtime environment
             let mut child = Command::new("bash")
                 .arg("/usr/local/bin/install.sh") 
                 .env("TARGET_DISK", target_disk.as_str())
+                .env("DE_CHOICE", &de_num)     // Sends the extracted DE number
+                .env("BOOT_CHOICE", &boot_num) // Sends the extracted Bootloader number
                 .env("NON_INTERACTIVE", "1") 
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
@@ -60,7 +64,6 @@ fn main() -> Result<(), slint::PlatformError> {
 
             for line in reader.lines() {
                 if let Ok(output) = line {
-                    // Adjust progress bars based on string matches from your install.sh script logs
                     if output.contains("Formatting") || output.contains("partition") {
                         current_progress = 0.25;
                     } else if output.contains("pacstrap") || output.contains("Installing") {
