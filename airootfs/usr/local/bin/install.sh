@@ -8,7 +8,7 @@ error_handler() {
     local exit_code=$1
     local line_number=$2
     echo -e "\n=========================================================="
-    echo "         🚨 CRITICAL FAULT DETECTED BY KESTREL 🚨         "
+    echo "           CRITICAL FAULT DETECTED BY KESTREL           "
     echo "=========================================================="
     echo "[FAULT] Command failed with exit code: $exit_code"
     echo "[LOCATION] Failed execution occurred on line: $line_number"
