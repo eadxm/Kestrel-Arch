@@ -38,7 +38,7 @@ jobs:
           pacman -U 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst' 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst' --noconfirm
           echo -e "\n[chaotic-aur]\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> /etc/pacman.conf
 
-          # Downloading all core dependencies (No changes made here)
+          # Downloading all core dependencies (Added cage, mesa, polkit for the GUI Kiosk)
           pacman -Syw --cachedir airootfs/opt/offline_cache --dbpath /tmp/empty_db --noconfirm \
             base linux linux-firmware grub efibootmgr os-prober ntfs-3g networkmanager iwd bluez bluez-utils blueman \
             pipewire pipewire-pulse wireplumber brightnessctl flatpak xorg-server sddm sudo zram-generator earlyoom \
@@ -47,7 +47,7 @@ jobs:
             hyprland waybar kitty foot rofi-wayland xdg-desktop-portal-hyprland polkit-kde-agent thunar gvfs \
             plasma-desktop plasma-workspace plasma-nm power-profiles-daemon kscreen konsole dolphin ark kate spectacle discover packagekit-qt6 sddm-kcm \
             xfce4 xfce4-terminal xfce4-goodies \
-            zen-browser-bin libreoffice-fresh qt5-wayland qt6-wayland git stow
+            zen-browser-bin libreoffice-fresh qt5-wayland qt6-wayland git stow cage mesa polkit
 
       - name: Index Offline Database
         run: |
@@ -64,7 +64,9 @@ jobs:
         run: |
           cp -r /usr/share/archiso/configs/releng /tmp/kestrel_profile
           echo -e "\n[chaotic-aur]\nSigLevel = Optional TrustAll\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> /tmp/kestrel_profile/pacman.conf
-          echo "zsh" >> /tmp/kestrel_profile/packages.x86_64
+          
+          # Inject the necessary Wayland kiosk packages into the live environment
+          echo -e "zsh\ncage\nkitty\nmesa\nttf-dejavu\npolkit" >> /tmp/kestrel_profile/packages.x86_64
 
           # 1. Setup the installer paths
           mkdir -p /tmp/kestrel_profile/airootfs/usr/local/bin
@@ -80,10 +82,14 @@ jobs:
           chmod +x /tmp/kestrel_profile/airootfs/usr/local/bin/install.sh
           chmod +x /tmp/kestrel_profile/airootfs/usr/local/bin/kestrel-gui
 
-          # Set the GUI to launch automatically on login instead of the raw bash script
-          echo "/usr/local/bin/kestrel-gui" >> /tmp/kestrel_profile/airootfs/root/.zlogin
+          # 2. Setup Cage Wayland Kiosk Autostart inside .zlogin
+          cat << 'EOF' > /tmp/kestrel_profile/airootfs/root/.zlogin
+          if [ "$(tty)" = "/dev/tty1" ]; then
+              exec cage -s -- /usr/local/bin/kestrel-gui
+          fi
+          EOF
 
-          # 2. Copy the offline cache
+          # 3. Copy the offline cache
           mkdir -p /tmp/kestrel_profile/airootfs/opt
           cp -r airootfs/opt/offline_cache /tmp/kestrel_profile/airootfs/opt/
 
