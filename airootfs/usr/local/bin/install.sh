@@ -58,8 +58,17 @@ if [ "$NON_INTERACTIVE" = "1" ]; then
     
     BROWSER_CHOICE="1"
     PERF_CHOICE="Y"
-    DE_CHOICE="1" 
-    BOOT_CHOICE="1" # Default to GRUB for headless setup
+    
+    # 🔧 FIX 1: Respect the variables passed by Rust, fallback to 1 if empty
+    DE_CHOICE="${DE_CHOICE:-1}" 
+    BOOT_CHOICE="${BOOT_CHOICE:-1}" 
+
+    # 🔧 FIX 2: Auto-detect Install Mode to prevent freezing at the prompt
+    if [ -d "/opt/offline_cache" ]; then
+        INSTALL_MODE="2"
+    else
+        INSTALL_MODE="1"
+    fi
 fi
 
 clear
