@@ -16,22 +16,8 @@ iwd
 chaotic-keyring
 chaotic-mirrorlist
 
-# --- USB RECOGNITION & MOUNTING ---
+# --- USB RECOGNITION & SYSTEM TOOLS ---
 udisks2
 gvfs
-kio-extras
-
-# --- CORE DISPLAY & LOGIN ---
-xorg-server
-sddm
-
-# --- THE SURVIVAL KIT: LIGHTWEIGHT GRAPHICAL USB ENVIRONMENT ---
-xfce4
-xfce4-terminal
-thunar
-
-# --- TERMINALS & BROWSERS FOR DESKTOP ENVIRONMENTS ---
-kitty
-foot
-zenity
-zen-browser-bin
+polkit
+pciutils
