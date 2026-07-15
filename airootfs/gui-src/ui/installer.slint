@@ -1,7 +1,6 @@
 import { Button, ComboBox, ProgressIndicator, VerticalBox, HorizontalBox } from "std-widgets.slint";
 
 export global InstallerLogic {
-    // Updated to accept 3 strings: Disk, Desktop, Bootloader
     callback start_install(string, string, string);
     callback launch_terminal();
     callback update_system();
@@ -11,119 +10,145 @@ export global InstallerLogic {
 }
 
 export component InstallerWindow inherits Window {
-    title: "Kestrel OS Welcome";
-    width: 600px;
-    height: 520px; // Increased height to fit new dropdowns
-    background: #1e1e2e;
-    default-font-family: "sans-serif";
+    title: "Kestrel OS Installer";
+    width: 650px;
+    height: 550px;
+    background: #1e1e2e; // Professional dark background
+    default-font-family: "Noto Sans, Roboto, sans-serif";
 
     in-out property <int> active_step: 0;
-    property <string> selected_disk: "/dev/nvme0n1";
+    
+    // RUST INTEGRATION: Rust will inject the real hard drives into this array!
+    in property <[string]> available_disks: ["Scanning hardware..."];
+    
+    property <string> selected_disk: root.available_disks[0];
     property <string> selected_de: "1. Hyprland";
-    property <string> selected_boot: "1. GRUB";
+    property <string> selected_boot: "4. Limine";
 
     VerticalBox {
-        padding: 30px;
-        spacing: 15px;
+        padding: 40px;
+        spacing: 20px;
 
+        // --- GLOBAL HEADER ---
         Text {
             text: "Kestrel OS";
-            font-size: 20px;
-            font-weight: 500;
-            color: #cba6f7;
+            font-size: 28px;
+            font-weight: 700;
+            color: #cba6f7; // Signature Kestrel Purple
             horizontal-alignment: center;
         }
 
         Rectangle { height: 1px; background: #313244; }
 
-        // STEP 0: Dashboard
+        // --- STEP 0: Dashboard ---
         if (root.active_step == 0) : VerticalBox {
             alignment: center;
-            spacing: 15px;
+            spacing: 20px;
             
             Text {
                 text: "Welcome to Kestrel Arch";
-                font-size: 16px;
+                font-size: 18px;
+                font-weight: 600;
                 color: #cdd6f4;
                 horizontal-alignment: center;
             }
             
             Text {
-                text: "Select an option below to manage the live environment or install the system.";
-                font-size: 12px;
+                text: "Select an option below to manage the live environment or deploy the system.";
+                font-size: 13px;
                 color: #bac2de;
                 horizontal-alignment: center;
             }
 
             HorizontalBox {
-                padding-top: 20px;
+                padding-top: 25px;
                 alignment: center;
-                spacing: 15px;
+                spacing: 20px;
                 
                 Button {
                     text: "Launch Terminal";
+                    height: 40px;
                     clicked => { InstallerLogic.launch_terminal(); }
                 }
                 Button {
                     text: "Update System";
+                    height: 40px;
                     clicked => { InstallerLogic.update_system(); }
                 }
                 Button {
-                    text: "Install Kestrel";
+                    text: "Deploy Kestrel";
                     primary: true;
+                    height: 40px;
                     clicked => { root.active_step = 1; }
                 }
             }
         }
 
-        // STEP 1: Configuration Screen
+        // --- STEP 1: Configuration Screen ---
         if (root.active_step == 1) : VerticalBox {
             alignment: center;
-            spacing: 12px;
+            spacing: 15px;
+            padding-left: 40px;
+            padding-right: 40px;
             
-            // Disk Selection
-            Text { text: "Target Drive"; font-size: 12px; color: #bac2de; }
-            ComboBox {
-                model: ["/dev/nvme0n1", "/dev/sda", "/dev/vda"];
-                current-value: root.selected_disk;
-                selected(val) => { root.selected_disk = val; }
+            // Dynamic Disk Selection
+            VerticalBox {
+                spacing: 5px;
+                Text { text: "Target Drive:"; font-size: 13px; font-weight: 600; color: #bac2de; }
+                ComboBox {
+                    model: root.available_disks;
+                    current-value: root.selected_disk;
+                    selected(val) => { root.selected_disk = val; }
+                    height: 35px;
+                }
             }
             
             // DE Selection
-            Text { text: "Desktop Environment"; font-size: 12px; color: #bac2de; padding-top: 10px; }
-            ComboBox {
-                model: ["1. Hyprland", "2. KDE Plasma", "3. XFCE", "4. GNOME", "5. Sway", "6. i3-wm", "7. Cinnamon", "8. Niri", "9. Qtile", "10. Wayfire", "11. bspwm", "12. Budgie", "13. Cosmic", "14. LXDE", "15. LXQt", "16. Mate", "17. Openbox"];
-                current-value: root.selected_de;
-                selected(val) => { root.selected_de = val; }
+            VerticalBox {
+                spacing: 5px;
+                Text { text: "Desktop Environment:"; font-size: 13px; font-weight: 600; color: #bac2de; padding-top: 5px; }
+                ComboBox {
+                    model: ["1. Hyprland", "2. KDE Plasma", "3. XFCE", "4. GNOME", "5. Sway", "6. i3-wm", "7. Cinnamon", "8. Niri", "9. Qtile", "10. Wayfire", "11. bspwm", "12. Budgie", "13. Cosmic", "14. LXDE", "15. LXQt", "16. Mate", "17. Openbox"];
+                    current-value: root.selected_de;
+                    selected(val) => { root.selected_de = val; }
+                    height: 35px;
+                }
             }
 
             // Bootloader Selection
-            Text { text: "Boot Manager"; font-size: 12px; color: #bac2de; padding-top: 10px; }
-            ComboBox {
-                model: ["1. GRUB", "2. systemd-boot", "3. rEFInd", "4. Limine"];
-                current-value: root.selected_boot;
-                selected(val) => { root.selected_boot = val; }
+            VerticalBox {
+                spacing: 5px;
+                Text { text: "Boot Manager:"; font-size: 13px; font-weight: 600; color: #bac2de; padding-top: 5px; }
+                ComboBox {
+                    model: ["1. GRUB", "2. systemd-boot", "3. rEFInd", "4. Limine"];
+                    current-value: root.selected_boot;
+                    selected(val) => { root.selected_boot = val; }
+                    height: 35px;
+                }
             }
 
             Text {
-                text: "Warning: All data on the target drive will be erased.";
-                color: #f38ba8;
+                text: "WARNING: All data on the target drive will be permanently erased.";
+                color: #f38ba8; // Warning Red
                 font-size: 12px;
+                font-weight: 700;
                 horizontal-alignment: center;
-                padding-top: 15px;
+                padding-top: 20px;
             }
             
             HorizontalBox {
-                padding-top: 10px;
+                padding-top: 15px;
                 alignment: center;
-                spacing: 10px;
+                spacing: 15px;
                 Button {
                     text: "Back";
+                    height: 40px;
                     clicked => { root.active_step = 0; }
                 }
                 Button {
-                    text: "Deploy System";
+                    text: "Begin Deployment";
                     primary: true;
+                    height: 40px;
                     clicked => { 
                         root.active_step = 2; 
                         InstallerLogic.start_install(root.selected_disk, root.selected_de, root.selected_boot);
@@ -132,41 +157,50 @@ export component InstallerWindow inherits Window {
             }
         }
 
-        // STEP 2: Live Progress Output Screen
+        // --- STEP 2: Live Progress Screen ---
         if (root.active_step == 2) : VerticalBox {
             alignment: center;
-            spacing: 12px;
+            spacing: 20px;
+            padding-left: 50px;
+            padding-right: 50px;
+            
             Text {
                 text: "Deploying system files...";
-                font-size: 14px;
+                font-size: 16px;
+                font-weight: 600;
                 color: #cdd6f4;
                 horizontal-alignment: center;
             }
+            
             ProgressIndicator {
                 progress: InstallerLogic.progress;
+                height: 20px;
             }
+            
             Text {
                 text: InstallerLogic.status_text;
                 color: #a6adc8;
-                font-size: 12px;
+                font-size: 13px;
                 horizontal-alignment: center;
             }
         }
 
-        // STEP 3: Complete Screen
+        // --- STEP 3: Complete Screen ---
         if (root.active_step == 3) : VerticalBox {
             alignment: center;
-            spacing: 12px;
+            spacing: 15px;
+            
             Text {
-                text: "Installation Complete";
-                font-size: 18px;
-                color: #a6e3a1;
+                text: "Deployment Successful";
+                font-size: 22px;
+                font-weight: 700;
+                color: #a6e3a1; // Success Green
                 horizontal-alignment: center;
             }
             Text {
-                text: "Your system is ready to use.";
+                text: "Kestrel OS has been installed to your drive. You may now reboot.";
                 color: #bac2de;
-                font-size: 13px;
+                font-size: 14px;
                 horizontal-alignment: center;
             }
         }
