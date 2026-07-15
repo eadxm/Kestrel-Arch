@@ -101,7 +101,8 @@ jobs:
           echo -e "\nWelcome to \e[1;36mKestrel OS\e[0m!\n" > /tmp/kestrel_profile/airootfs/etc/issue
 
           mkdir -p out/
-          mkarchiso -v -w /tmp/archiso-tmp -o out/ /tmp/kestrel_profile/
+          # 🔧 ADDED MAXIMUM COMPRESSION FLAG HERE
+          mkarchiso -v -w /tmp/archiso-tmp -o out/ -z "zstd -Xcompression-level 19" /tmp/kestrel_profile/
 
       - name: Upload ISO Artifact
         uses: actions/upload-artifact@v4
