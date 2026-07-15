@@ -63,7 +63,8 @@ jobs:
           cp -r /usr/share/archiso/configs/releng /tmp/kestrel_profile
           echo -e "\n[chaotic-aur]\nSigLevel = Optional TrustAll\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> /tmp/kestrel_profile/pacman.conf
           
-          echo -e "zsh\ncage\nkitty\nmesa\nttf-dejavu\npolkit\npciutils" >> /tmp/kestrel_profile/packages.x86_64
+          # Added xorg-xwayland to resolve the missing binary error
+          echo -e "zsh\ncage\nkitty\nmesa\nttf-dejavu\npolkit\npciutils\nxorg-xwayland" >> /tmp/kestrel_profile/packages.x86_64
 
           mkdir -p /tmp/kestrel_profile/airootfs/usr/local/bin
           mkdir -p /tmp/kestrel_profile/airootfs/root
@@ -72,8 +73,8 @@ jobs:
           
           cp airootfs/gui-src/target/release/kestrel-gui /tmp/kestrel_profile/airootfs/usr/local/bin/kestrel-gui
           
-          chmod +x /tmp/kestrel_profile/airootfs/usr/local/bin/install.sh
-          chmod +x /tmp/kestrel_profile/airootfs/usr/local/bin/kestrel-gui
+          # Tell Archiso to strictly preserve executable permissions for our custom files
+          sed -i 's/file_permissions=(/file_permissions=(\n  ["\/usr\/local\/bin\/install.sh"]="0:0:755"\n  ["\/usr\/local\/bin\/kestrel-gui"]="0:0:755"/g' /tmp/kestrel_profile/profiledef.sh
 
           cat << 'EOF' > /tmp/kestrel_profile/airootfs/root/.zlogin
           export XDG_RUNTIME_DIR=/run/user/$(id -u)
