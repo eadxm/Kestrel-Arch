@@ -8,7 +8,7 @@ error_handler() {
     local exit_code=$1
     local line_number=$2
     echo -e "\n=========================================================="
-    echo "         🚨 CRITICAL FAULT DETECTED BY KESTREL 🚨         "
+    echo "         CRITICAL FAULT DETECTED BY KESTREL         "
     echo "=========================================================="
     echo "[FAULT] Command failed with exit code: $exit_code"
     echo "[LOCATION] Failed execution occurred on line: $line_number"
@@ -47,28 +47,32 @@ trap 'error_handler $? $LINENO' ERR
 if [ "$NON_INTERACTIVE" = "1" ]; then
     echo "[INFO] Non-Interactive GUI Mode Engaged."
     
+    # 1. Drive & Mode
     TARGET_DRIVE="${TARGET_DISK}"
-    USER_CHOICE="3"
+    INSTALL_MODE="${INSTALL_MODE:-2}"
+    
+    # 2. Partitioning Strategy (Defaults to 3 / Hard Nuke if GUI doesn't pass one)
+    USER_CHOICE="${PARTITION_STRATEGY:-3}"
     CONFIRM_NUKE="YES"
+    PROCEED_RESIZE="Y"
     
-    system_hostname="kestrel"
-    username="kestrel"
-    user_password="password"
-    root_password="password"
+    # Advanced GUI Partitioning Targets (Used later for dual-booting)
+    ARCH_ROOT="${GUI_ARCH_ROOT:-}"
+    ARCH_EFI="${GUI_ARCH_EFI:-}"
+    C_DRIVE="${GUI_C_DRIVE:-}"
+    ARCH_SIZE_GB="${GUI_ARCH_SIZE_GB:-}"
     
-    BROWSER_CHOICE="1"
-    PERF_CHOICE="Y"
+    # 3. Account Details
+    system_hostname="${GUI_HOSTNAME:-kestrel}"
+    username="${GUI_USERNAME:-kestrel}"
+    user_password="${GUI_PASSWORD:-password}"
+    root_password="${GUI_ROOT_PASSWORD:-$user_password}"
     
-    # 🔧 FIX 1: Respect the variables passed by Rust, fallback to 1 if empty
+    # 4. Software Config
+    BROWSER_CHOICE="${BROWSER_CHOICE:-1}"
+    PERF_CHOICE="${PERF_CHOICE:-Y}"
     DE_CHOICE="${DE_CHOICE:-1}" 
     BOOT_CHOICE="${BOOT_CHOICE:-1}" 
-
-    # 🔧 FIX 2: Auto-detect Install Mode to prevent freezing at the prompt
-    if [ -d "/opt/offline_cache" ]; then
-        INSTALL_MODE="2"
-    else
-        INSTALL_MODE="1"
-    fi
 fi
 
 clear
@@ -81,7 +85,7 @@ TARGET="/mnt"
 ISO_CACHE="/opt/offline_cache"
 GRUB_OS_PROBER="true" 
 EFI_DIR="/boot/efi"
-ARCH_ROOT=""
+ARCH_ROOT="${ARCH_ROOT}"
 DISPLAY_MANAGER="sddm"
 
 CORE_PKGS="base linux-cachyos linux-cachyos-headers linux-firmware scx-scheds switcheroo-control efibootmgr os-prober ntfs-3g networkmanager iwd bluez bluez-utils blueman pipewire pipewire-pulse wireplumber brightnessctl flatpak xorg-server sudo zram-generator earlyoom reflector ttf-dejavu ttf-liberation noto-fonts noto-fonts-emoji curl chaotic-keyring chaotic-mirrorlist parted foot git stow qt5-wayland qt6-wayland"
@@ -181,26 +185,32 @@ echo "STARTING: Formatting partition tables on $TARGET_DRIVE..."
 
 case $USER_CHOICE in
     1|2|6)
-        if [ "$USER_CHOICE" = "6" ]; then cfdisk "$TARGET_DRIVE"; fi
+        if [ "$USER_CHOICE" = "6" ] && [ "$NON_INTERACTIVE" != "1" ]; then cfdisk "$TARGET_DRIVE"; fi
         lsblk "$TARGET_DRIVE" -o NAME,SIZE,TYPE,FSTYPE
-        while true; do
-            read -r -p "Enter partition for Arch ROOT (e.g., /dev/sda3): " ARCH_ROOT
-            if [ -b "$ARCH_ROOT" ] && [ "$ARCH_ROOT" != "$TARGET_DRIVE" ]; then break; fi
-        done
-        if [ -d "/sys/firmware/efi" ]; then
+        
+        if [ -z "$ARCH_ROOT" ]; then
             while true; do
-                read -r -p "Enter EFI partition path (e.g., /dev/sda1): " ARCH_EFI
-                if [ -b "$ARCH_EFI" ] && [ "$ARCH_EFI" != "$TARGET_DRIVE" ]; then break; fi
+                read -r -p "Enter partition for Arch ROOT (e.g., /dev/sda3): " ARCH_ROOT
+                if [ -b "$ARCH_ROOT" ] && [ "$ARCH_ROOT" != "$TARGET_DRIVE" ]; then break; fi
             done
         fi
         
+        if [ -d "/sys/firmware/efi" ]; then
+            if [ -z "$ARCH_EFI" ]; then
+                while true; do
+                    read -r -p "Enter EFI partition path (e.g., /dev/sda1): " ARCH_EFI
+                    if [ -b "$ARCH_EFI" ] && [ "$ARCH_EFI" != "$TARGET_DRIVE" ]; then break; fi
+                done
+            fi
+        fi
+        
         if [ "$USER_CHOICE" = "2" ]; then
-            read -r -p "Type 'NUKE' to erase $ARCH_ROOT: " CONFIRM_NUKE
+            if [ -z "$CONFIRM_NUKE" ]; then read -r -p "Type 'NUKE' to erase $ARCH_ROOT: " CONFIRM_NUKE; fi
             [[ "${CONFIRM_NUKE^^}" != "NUKE" ]] && exit 1
         fi
 
         if [ "$USER_CHOICE" = "6" ]; then
-            read -r -p "Format $ARCH_ROOT to ext4? (y/N): " FORMAT_ROOT
+            if [ -z "$FORMAT_ROOT" ]; then read -r -p "Format $ARCH_ROOT to ext4? (y/N): " FORMAT_ROOT; fi
             [[ "$FORMAT_ROOT" =~ ^[Yy]$ ]] && mkfs.ext4 -F "$ARCH_ROOT"
         else mkfs.ext4 -F "$ARCH_ROOT"; fi
         mount "$ARCH_ROOT" "$TARGET"
@@ -209,20 +219,20 @@ case $USER_CHOICE in
             mkdir -p "$TARGET/boot/efi"
             umount "$ARCH_EFI" 2>/dev/null || true
             if [ "$USER_CHOICE" = "6" ]; then
-                read -r -p "Format $ARCH_EFI to FAT32? (y/N): " FORMAT_EFI
+                if [ -z "$FORMAT_EFI" ]; then read -r -p "Format $ARCH_EFI to FAT32? (y/N): " FORMAT_EFI; fi
                 [[ "$FORMAT_EFI" =~ ^[Yy]$ ]] && mkfs.vfat -F 32 "$ARCH_EFI"
             fi
             mount -t vfat "$ARCH_EFI" "$TARGET/boot/efi"
         else mkdir -p "$TARGET/boot"; fi
         
         if [ "$USER_CHOICE" = "1" ]; then GRUB_OS_PROBER="false"; elif [ "$USER_CHOICE" = "6" ]; then
-            read -r -p "Enable OS Prober? (Y/n): " MANUAL_PROBER
+            if [ -z "$MANUAL_PROBER" ]; then read -r -p "Enable OS Prober? (Y/n): " MANUAL_PROBER; fi
             if [[ "$MANUAL_PROBER" =~ ^[Nn]$ ]]; then GRUB_OS_PROBER="true"; else GRUB_OS_PROBER="false"; fi
         fi
         ;;
     3)
         echo "====== HARD NUKE: WIPE ENTIRE DRIVE ======"
-        if [ -z "$CONFIRM_NUKE" ]; then read -r -p "🚨 DANGER: Type 'YES' to confirm: " CONFIRM_NUKE; fi
+        if [ -z "$CONFIRM_NUKE" ]; then read -r -p "DANGER: Type 'YES' to confirm: " CONFIRM_NUKE; fi
         [[ "${CONFIRM_NUKE^^}" != "YES" ]] && exit 1
         sleep 2
         if [ -d "/sys/firmware/efi" ]; then
@@ -250,14 +260,19 @@ case $USER_CHOICE in
         ;;
     4)
         echo "====== AUTOMATED WINDOWS RESIZE & DUAL BOOT ======"
-        read -r -p "Proceed with resize? (y/N): " PROCEED_RESIZE
+        if [ -z "$PROCEED_RESIZE" ]; then read -r -p "Proceed with resize? (y/N): " PROCEED_RESIZE; fi
         [[ ! "$PROCEED_RESIZE" =~ ^[Yy]$ ]] && exit 1
         lsblk "$TARGET_DRIVE" -o NAME,SIZE,TYPE,FSTYPE
-        while true; do
-            read -r -p "Type Windows C: partition (e.g., /dev/sda3): " C_DRIVE
-            if [ -b "$C_DRIVE" ] && [ "$C_DRIVE" != "$TARGET_DRIVE" ]; then break; fi
-        done
-        read -r -p "Space (in GB) to TAKE from Windows: " ARCH_SIZE_GB
+        
+        if [ -z "$C_DRIVE" ]; then
+            while true; do
+                read -r -p "Type Windows C: partition (e.g., /dev/sda3): " C_DRIVE
+                if [ -b "$C_DRIVE" ] && [ "$C_DRIVE" != "$TARGET_DRIVE" ]; then break; fi
+            done
+        fi
+        
+        if [ -z "$ARCH_SIZE_GB" ]; then read -r -p "Space (in GB) to TAKE from Windows: " ARCH_SIZE_GB; fi
+        
         ntfsfix "$C_DRIVE" || true
         C_PART_NUM=$(echo "$C_DRIVE" | grep -o '[0-9]\+$')
         ntfsresize -f -s -${ARCH_SIZE_GB}G "$C_DRIVE"
@@ -280,11 +295,13 @@ case $USER_CHOICE in
     5)
         echo "====== TARGET NUKE: ERASE SPECIFIC PARTITION ======"
         lsblk "$TARGET_DRIVE" -o NAME,SIZE,TYPE,FSTYPE
-        while true; do
-            read -r -p "Type target Windows partition to WIPE: " C_DRIVE
-            if [ -b "$C_DRIVE" ] && [ "$C_DRIVE" != "$TARGET_DRIVE" ]; then break; fi
-        done
-        read -r -p "Type 'NUKE' to erase $C_DRIVE: " CONFIRM_NUKE
+        if [ -z "$C_DRIVE" ]; then
+            while true; do
+                read -r -p "Type target Windows partition to WIPE: " C_DRIVE
+                if [ -b "$C_DRIVE" ] && [ "$C_DRIVE" != "$TARGET_DRIVE" ]; then break; fi
+            done
+        fi
+        if [ -z "$CONFIRM_NUKE" ]; then read -r -p "Type 'NUKE' to erase $C_DRIVE: " CONFIRM_NUKE; fi
         [[ "${CONFIRM_NUKE^^}" != "NUKE" ]] && exit 1
         mkfs.ext4 -F "$C_DRIVE"; mount "$C_DRIVE" "$TARGET"
         if [ -d "/sys/firmware/efi" ]; then
