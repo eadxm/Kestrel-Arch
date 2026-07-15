@@ -75,7 +75,6 @@ EFI_DIR="/boot/efi"
 ARCH_ROOT=""
 DISPLAY_MANAGER="sddm"
 
-# Added switcheroo-control back to core packages
 CORE_PKGS="base linux-cachyos linux-cachyos-headers linux-firmware scx-scheds switcheroo-control efibootmgr os-prober ntfs-3g networkmanager iwd bluez bluez-utils blueman pipewire pipewire-pulse wireplumber brightnessctl flatpak xorg-server sudo zram-generator earlyoom reflector ttf-dejavu ttf-liberation noto-fonts noto-fonts-emoji curl chaotic-keyring chaotic-mirrorlist parted foot git stow qt5-wayland qt6-wayland"
 
 if [ -z "$INSTALL_MODE" ]; then
@@ -352,7 +351,6 @@ if grep -q "AuthenticAMD" /proc/cpuinfo; then CORE_PKGS="$CORE_PKGS amd-ucode"; 
 
 # Universal Hybrid Graphics Detection Mechanism
 HAS_NVIDIA=0; HAS_INTEGRATED=0
-# nvidia-prime enables the prime-run command for Wayland/WM setups
 if lspci | grep -iq nvidia; then CORE_PKGS="$CORE_PKGS nvidia nvidia-utils nvidia-prime"; HAS_NVIDIA=1; fi
 if lspci | grep -E -iq "amd|intel"; then HAS_INTEGRATED=1; fi
 if lspci | grep -i vga | grep -iq amd; then CORE_PKGS="$CORE_PKGS xf86-video-amdgpu"; fi
@@ -557,11 +555,17 @@ fi
 echo "STARTING: Installing and deploying selected boot loader framework..."
 ROOT_UUID=$(blkid -s UUID -o value "$(lsblk -ln -p -o NAME "$TARGET_DRIVE" | grep -E "^${TARGET_DRIVE}${PART_PREFIX}[0-9]+" | sort -V | tail -n 1)")
 
+# Dynamically inject NVIDIA modeset if detected
+NVIDIA_CMDLINE=""
+if [ "$HAS_NVIDIA" -eq 1 ]; then
+    NVIDIA_CMDLINE=" nvidia-drm.modeset=1"
+fi
+
 case $BOOT_CHOICE in
     1)
         # GRUB
         echo "GRUB_DISABLE_OS_PROBER=$GRUB_OS_PROBER" >> "$TARGET/etc/default/grub"
-        sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="nowatchdog zswap.enabled=0 quiet splash mitigations=off"/' "$TARGET/etc/default/grub"
+        sed -i "s/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT=\"nowatchdog zswap.enabled=0 quiet splash mitigations=off${NVIDIA_CMDLINE}\"/" "$TARGET/etc/default/grub"
         if [ -d "/sys/firmware/efi" ]; then
             arch-chroot "$TARGET" grub-install --target=x86_64-efi --efi-directory="$EFI_DIR" --bootloader-id=KestrelArch --recheck
         else
@@ -579,7 +583,7 @@ case $BOOT_CHOICE in
             echo "linux /vmlinuz-linux-cachyos"
             [ -n "$UCODE_IMG" ] && echo "initrd /${UCODE_IMG}"
             echo "initrd /initramfs-linux-cachyos.img"
-            echo "options root=UUID=${ROOT_UUID} rw nowatchdog zswap.enabled=0 quiet splash mitigations=off"
+            echo "options root=UUID=${ROOT_UUID} rw nowatchdog zswap.enabled=0 quiet splash mitigations=off${NVIDIA_CMDLINE}"
         } > "$TARGET/boot/loader/entries/arch.conf"
         ;;
     3)
@@ -587,7 +591,7 @@ case $BOOT_CHOICE in
         arch-chroot "$TARGET" refind-install
         UCODE_STR=""
         [ -n "$UCODE_IMG" ] && UCODE_STR="initrd=${UCODE_IMG} "
-        echo "\"Boot using default options\" \"root=UUID=${ROOT_UUID} rw ${UCODE_STR}initrd=initramfs-linux-cachyos.img nowatchdog zswap.enabled=0 quiet splash mitigations=off\"" > "$TARGET/boot/refind_linux.conf"
+        echo "\"Boot using default options\" \"root=UUID=${ROOT_UUID} rw ${UCODE_STR}initrd=initramfs-linux-cachyos.img nowatchdog zswap.enabled=0 quiet splash mitigations=off${NVIDIA_CMDLINE}\"" > "$TARGET/boot/refind_linux.conf"
         ;;
     4)
         # Limine
@@ -603,7 +607,7 @@ default_entry: 1
     protocol: linux
     kernel_path: boot():/vmlinuz-linux-cachyos
     ${UCODE_STR}module_path: boot():/initramfs-linux-cachyos.img
-    cmdline: root=UUID=${ROOT_UUID} rw nowatchdog zswap.enabled=0 quiet splash mitigations=off
+    cmdline: root=UUID=${ROOT_UUID} rw nowatchdog zswap.enabled=0 quiet splash mitigations=off${NVIDIA_CMDLINE}
 EOF
         if [ ! -d "/sys/firmware/efi" ]; then
             arch-chroot "$TARGET" limine deploy "$TARGET_DRIVE" || true
