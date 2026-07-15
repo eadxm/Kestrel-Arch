@@ -1,7 +1,6 @@
 import { Button, ComboBox, ProgressIndicator, VerticalBox, HorizontalBox, LineEdit, CheckBox } from "std-widgets.slint";
 
 export global InstallerLogic {
-    // Now accepts all 11 variables required by main.rs
     callback start_install(string, string, string, string, string, string, string, string, string, string, string);
     callback launch_terminal();
     callback update_system();
@@ -12,29 +11,27 @@ export global InstallerLogic {
 
 export component InstallerWindow inherits Window {
     title: "Kestrel OS Installer";
-    width: 700px;  // Slightly wider for text inputs
-    height: 600px; // Slightly taller for the wizard flow
+    width: 700px; 
+    height: 600px;
     background: #1e1e2e;
     default-font-family: "Noto Sans, Roboto, sans-serif";
 
     in-out property <int> active_step: 0;
     
+    // --- ERROR BRIDGE PROPERTIES ---
+    in-out property <string> error_message: "";
+    in-out property <bool> show_error_popup: false;
+    
     in property <[string]> available_disks: ["Scanning hardware..."];
     
     // --- STATE MANAGEMENT ---
-    
-    // Step 1: Storage
     property <string> selected_disk: root.available_disks[0];
     property <string> selected_mode: "2. Offline (Fast, Local Cache)";
     property <string> selected_part: "3. HARD NUKE - Wipe the entire drive";
-    
-    // Step 2: Accounts
     property <string> in_hostname: "kestrel";
     property <string> in_username: "kestrel_user";
     property <string> in_password: "";
     property <string> in_root_password: "";
-    
-    // Step 3: Software
     property <string> selected_browser: "1. Zen Browser (Recommended)";
     property <bool> perf_enabled: true;
     property <string> selected_de: "1. Hyprland";
@@ -194,7 +191,7 @@ export component InstallerWindow inherits Window {
                     text: "Next: Software"; 
                     primary: true; 
                     height: 40px; 
-                    enabled: root.in_username != "" && root.in_password != ""; // Prevent empty passwords
+                    enabled: root.in_username != "" && root.in_password != "";
                     clicked => { root.active_step = 3; } 
                 }
             }
@@ -267,8 +264,7 @@ export component InstallerWindow inherits Window {
                     primary: true;
                     height: 40px;
                     clicked => { 
-                        root.active_step = 4; // Move to Progress Screen
-                        // Send all 11 variables to Rust!
+                        root.active_step = 4;
                         InstallerLogic.start_install(
                             root.selected_disk,
                             root.selected_mode,
@@ -336,6 +332,33 @@ export component InstallerWindow inherits Window {
                 color: #bac2de;
                 font-size: 14px;
                 horizontal-alignment: center;
+            }
+        }
+    }
+
+    // ==========================================
+    // ERROR MODAL OVERLAY
+    // ==========================================
+    if (root.show_error_popup) : Rectangle {
+        background: #11111bdf; // Dark overlay
+        VerticalBox {
+            alignment: center;
+            padding: 40px;
+            Rectangle {
+                background: #1e1e2e;
+                border-radius: 10px;
+                border-width: 2px;
+                border-color: #f38ba8;
+                VerticalBox {
+                    padding: 20px;
+                    spacing: 15px;
+                    Text { text: "⚠️ Installation Error"; font-size: 20px; color: #f38ba8; horizontal-alignment: center; }
+                    Text { text: root.error_message; font-size: 14px; color: #cdd6f4; horizontal-alignment: center; wrap: word-wrap; }
+                    Button { 
+                        text: "Dismiss"; 
+                        clicked => { root.show_error_popup = false; } 
+                    }
+                }
             }
         }
     }
