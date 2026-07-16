@@ -80,12 +80,16 @@ jobs:
 
           cat << 'EOF' > /tmp/kestrel_profile/airootfs/root/.zlogin
           export XDG_RUNTIME_DIR=/run/user/$(id -u)
+          
+          # FIX: Unconditionally enforce software cursor to fix vanishing mouse bug
+          export WLR_NO_HARDWARE_CURSORS=1
+          
           IS_VM=$(systemd-detect-virt -q && echo 1 || echo 0)
           HAS_NVIDIA=$(lspci | grep -iE "vga.*nvidia|3d.*nvidia" >/dev/null 2>&1 && echo 1 || echo 0)
           if [ "$IS_VM" = "1" ] || [ "$HAS_NVIDIA" = "1" ]; then
-              export WLR_NO_HARDWARE_CURSORS=1
               export WLR_RENDERER=pixman
           fi
+          
           if [ "$(tty)" = "/dev/tty1" ]; then
               exec cage -s -- /usr/local/bin/kestrel-gui
           fi
