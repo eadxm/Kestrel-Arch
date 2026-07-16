@@ -1,5 +1,11 @@
 import { ComboBox, ProgressIndicator, VerticalBox, HorizontalBox, LineEdit, CheckBox, ScrollView } from "std-widgets.slint";
 
+// ==========================================
+// FONT EMBEDDING
+// ==========================================
+import "./fonts/Geomini.ttf";
+import "./fonts/CascadiaCode.ttf";
+
 export global InstallerLogic {
     callback start_install(string, string, string, string, string, string, string, string, string, string, string);
     callback launch_terminal();
@@ -7,7 +13,6 @@ export global InstallerLogic {
     
     in property <float> progress: 0.0;
     in property <string> status_text: "Ready to deploy.";
-    
     in property <string> console_log: "> System pre-flight checks passed.\n> Standing by for deployment protocol...\n";
 }
 
@@ -27,7 +32,7 @@ component GlowingButton inherits Rectangle {
     border-width: primary ? 0px : 1px;
     
     border-color: primary ? transparent : (touch.has-hover ? #06B6D4 : #374151);
-    animate border-color { duration: 200ms; easing: ease-out; }
+    animate border-color { duration: 100ms; easing: ease-in-out; }
 
     Text {
         text: root.text;
@@ -36,7 +41,7 @@ component GlowingButton inherits Rectangle {
         font-weight: 600;
         horizontal-alignment: center;
         vertical-alignment: center;
-        animate color { duration: 200ms; easing: ease-out; }
+        animate color { duration: 100ms; easing: ease-in-out; }
     }
     
     Rectangle {
@@ -45,7 +50,7 @@ component GlowingButton inherits Rectangle {
         border-radius: parent.border-radius;
         background: primary ? #000000 : #A5F3FC;
         opacity: touch.pressed ? 0.25 : (touch.has-hover ? 0.08 : 0.0);
-        animate opacity { duration: 150ms; easing: ease-in-out; }
+        animate opacity { duration: 100ms; easing: ease-in-out; }
     }
     
     touch := TouchArea {
@@ -56,66 +61,64 @@ component GlowingButton inherits Rectangle {
 
 export component InstallerWindow inherits Window {
     title: "Kestrel Arch Deployment Engine";
-    background: #020617; 
     
-    default-font-family: "Inter, Montserrat, Segoe UI, Roboto, sans-serif";
     width: 1024px;
     height: 768px;
+    background: #020617; 
+    
+    // UX FIX: Set the global font to your custom Geomini font
+    default-font-family: "Geomini", "Segoe UI", "Roboto", sans-serif;
 
     in-out property <int> active_step: 0;
-    
     in-out property <string> error_message: "";
     in-out property <bool> show_error_popup: false;
-    
-    // --- NEW: Tracks if the console dropdown is open ---
     property <bool> show_console: false;
     
     in property <[string]> available_disks: ["Scanning hardware..."];
-    
     property <string> selected_disk: root.available_disks[0];
-    property <string> selected_mode: "2. Offline (Fast, Local Cache)";
-    property <string> selected_part: "3. HARD NUKE - Wipe the entire drive";
-    property <string> in_hostname: "kestrel";
-    property <string> in_username: "kestrel_user";
+    
+    property <string> selected_mode: "Choose mode of installation";
+    property <string> selected_part: "1. SAFE MULTI-BOOT (Alongside OS)";
+    
+    property <string> in_hostname: "";
+    property <string> in_username: "";
     property <string> in_password: "";
     property <string> in_root_password: "";
+    
     property <string> selected_browser: "1. Zen Browser (Recommended)";
     property <bool> perf_enabled: true;
-    property <string> selected_de: "1. Hyprland";
-    property <string> selected_boot: "4. Limine";
+    property <string> selected_de: "Choose your environment";
+    property <string> selected_boot: "1. GRUB";
 
-    // The Main Glowing Pane
     Rectangle {
-        x: 40px; 
-        y: 40px; 
-        width: parent.width - 80px; 
-        height: parent.height - 80px;
+        width: 800px;
+        height: 600px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
         
         background: #040D14; 
         border-radius: 20px;
         border-width: 1px;
         border-color: #06B6D4; 
         
-        drop-shadow-color: #06B6D450; 
-        drop-shadow-blur: 80px;
-        drop-shadow-offset-x: 0px;
-        drop-shadow-offset-y: 0px;
+        drop-shadow-color: #06B6D430; 
+        drop-shadow-blur: 50px;
 
         VerticalBox {
-            padding-left: 50px;
-            padding-right: 50px;
-            padding-top: 40px;
-            padding-bottom: 40px;
-
-            // ==========================================
-            // PERSISTENT BRANDING HEADER
-            // ==========================================
+            padding: 40px;
+            
             HorizontalBox {
                 alignment: start;
-                height: 50px;
-                spacing: 12px;
+                height: 32px;
+                spacing: 15px;
                 
-                Image { source: @image-url("logo.png"); height: 28px; image-fit: contain; }
+                Image { 
+                    source: @image-url("logo.png"); 
+                    width: 32px; 
+                    height: 32px; 
+                    image-fit: contain; 
+                }
+                
                 Text { 
                     text: "KESTREL ARCH"; 
                     color: #E5E7EB; 
@@ -126,275 +129,300 @@ export component InstallerWindow inherits Window {
                 }
             }
 
-            Rectangle { height: 1px; } 
+            Rectangle { height: 20px; } 
 
-            // ==========================================
-            // STEP 0: Landing Page
-            // ==========================================
-            if (root.active_step == 0) : VerticalBox {
+            VerticalBox {
                 alignment: center;
-                spacing: 30px;
-                
-                VerticalBox {
-                    spacing: 5px;
-                    Text { text: "Kestrel Arch"; font-size: 64px; font-weight: 800; color: #A5F3FC; horizontal-alignment: center; letter-spacing: -1px; }
-                    Text { text: "Installer"; font-size: 64px; font-weight: 800; color: #A5F3FC; horizontal-alignment: center; letter-spacing: -1px; }
-                }
-                
-                Text { text: "Efficient. Robust. Custom configurations. Built to scale your infrastructure, every time."; font-size: 14px; color: #9CA3AF; horizontal-alignment: center; }
 
-                HorizontalBox {
+                // --- STEP 0: Landing Page ---
+                if (root.active_step == 0) : VerticalBox {
                     alignment: center;
-                    spacing: 20px;
-                    GlowingButton { text: "Begin Installation"; primary: true; clicked => { root.active_step = 1; } }
-                }
-            }
-
-            // ==========================================
-            // STEP 1: Storage & Strategy
-            // ==========================================
-            if (root.active_step == 1) : VerticalBox {
-                alignment: center;
-                spacing: 15px;
-                padding-left: 100px;
-                padding-right: 100px;
-                
-                Text { text: "System Configuration"; font-size: 24px; font-weight: 700; color: #A5F3FC; horizontal-alignment: center; }
-                Rectangle { height: 20px; } 
-
-                VerticalBox {
-                    spacing: 6px;
-                    Text { text: "Target Drive:"; font-size: 13px; font-weight: 600; color: #D1D5DB; }
-                    ComboBox { model: root.available_disks; current-value: root.selected_disk; selected(val) => { root.selected_disk = val; } height: 38px; }
-                }
-
-                VerticalBox {
-                    spacing: 6px;
-                    Text { text: "Installation Mode:"; font-size: 13px; font-weight: 600; color: #D1D5DB; }
-                    ComboBox { model: ["1. Online (Download Latest)", "2. Offline (Fast, Local Cache)"]; current-value: root.selected_mode; selected(val) => { root.selected_mode = val; } height: 38px; }
-                }
-                
-                VerticalBox {
-                    spacing: 6px;
-                    Text { text: "Partitioning Strategy:"; font-size: 13px; font-weight: 600; color: #D1D5DB; }
-                    ComboBox { model: ["1. SAFE MULTI-BOOT (Alongside OS)", "2. REPLACE LINUX (Wipe Linux Partitions)", "3. HARD NUKE (Wipe Entire Drive)", "4. WINDOWS RESIZE (Shrink C: Drive)", "5. TARGET NUKE (Wipe C: Drive Only)"]; current-value: root.selected_part; selected(val) => { root.selected_part = val; } height: 38px; }
-                }
-                
-                HorizontalBox {
-                    alignment: center;
-                    spacing: 15px;
-                    Rectangle { height: 60px; } 
-                    GlowingButton { text: "Cancel"; primary: false; clicked => { root.active_step = 0; } }
-                    GlowingButton { text: "Next Step"; primary: true; clicked => { root.active_step = 2; } }
-                }
-            }
-
-            // ==========================================
-            // STEP 2: Account Creation
-            // ==========================================
-            if (root.active_step == 2) : VerticalBox {
-                alignment: center;
-                spacing: 15px;
-                padding-left: 100px;
-                padding-right: 100px;
-
-                Text { text: "User Credentials"; font-size: 24px; font-weight: 700; color: #A5F3FC; horizontal-alignment: center; }
-                Rectangle { height: 20px; } 
-
-                VerticalBox {
-                    spacing: 6px;
-                    Text { text: "System Hostname:"; font-size: 13px; font-weight: 500; color: #D1D5DB; }
-                    LineEdit { text: root.in_hostname; edited(val) => { root.in_hostname = val; } height: 38px; }
-                }
-
-                VerticalBox {
-                    spacing: 6px;
-                    Text { text: "Username:"; font-size: 13px; font-weight: 500; color: #D1D5DB; }
-                    LineEdit { text: root.in_username; edited(val) => { root.in_username = val; } height: 38px; }
-                }
-
-                VerticalBox {
-                    spacing: 6px;
-                    Text { text: "User Password:"; font-size: 13px; font-weight: 500; color: #D1D5DB; }
-                    LineEdit { input-type: password; text: root.in_password; edited(val) => { root.in_password = val; } height: 38px; }
-                }
-
-                VerticalBox {
-                    spacing: 6px;
-                    Text { text: "Root Password (leave blank to match User):"; font-size: 13px; font-weight: 500; color: #D1D5DB; }
-                    LineEdit { input-type: password; text: root.in_root_password; edited(val) => { root.in_root_password = val; } height: 38px; }
-                }
-
-                HorizontalBox {
-                    alignment: center;
-                    spacing: 15px;
-                    Rectangle { height: 60px; }
-                    GlowingButton { text: "Back"; primary: false; clicked => { root.active_step = 1; } }
-                    GlowingButton { text: "Next Step"; primary: true; clicked => { root.active_step = 3; } }
-                }
-            }
-
-            // ==========================================
-            // STEP 3: Software & Deployment
-            // ==========================================
-            if (root.active_step == 3) : VerticalBox {
-                alignment: center;
-                spacing: 15px;
-                padding-left: 100px;
-                padding-right: 100px;
-                
-                Text { text: "Environment Setup"; font-size: 24px; font-weight: 700; color: #A5F3FC; horizontal-alignment: center; }
-                Rectangle { height: 20px; }
-
-                VerticalBox {
-                    spacing: 6px;
-                    Text { text: "Default Browser:"; font-size: 13px; font-weight: 600; color: #D1D5DB; }
-                    ComboBox { model: ["1. Zen Browser", "2. LibreWolf", "3. Firefox", "4. Brave"]; current-value: root.selected_browser; selected(val) => { root.selected_browser = val; } height: 38px; }
-                }
-
-                VerticalBox {
-                    spacing: 6px;
-                    Text { text: "Desktop Environment:"; font-size: 13px; font-weight: 600; color: #D1D5DB; }
-                    ComboBox { model: ["1. Hyprland", "2. KDE Plasma", "3. XFCE", "4. GNOME", "5. Sway", "6. i3-wm", "7. Cinnamon", "8. Niri", "9. Qtile", "10. Wayfire", "11. bspwm", "12. Budgie", "13. Cosmic", "14. LXDE", "15. LXQt", "16. Mate", "17. Openbox"]; current-value: root.selected_de; selected(val) => { root.selected_de = val; } height: 38px; }
-                }
-
-                VerticalBox {
-                    spacing: 6px;
-                    Text { text: "Boot Manager:"; font-size: 13px; font-weight: 600; color: #D1D5DB; }
-                    ComboBox { model: ["1. GRUB", "2. systemd-boot", "3. rEFInd", "4. Limine"]; current-value: root.selected_boot; selected(val) => { root.selected_boot = val; } height: 38px; }
-                }
-                
-                CheckBox {
-                    text: "Apply Hyper-Performance Matrix (ZRAM, Fast I/O)";
-                    checked: root.perf_enabled;
-                    toggled => { root.perf_enabled = !root.perf_enabled; }
-                }
-
-                Text {
-                    text: "WARNING: Review partitioning choice. Proceeding will write to disk.";
-                    color: #EF4444; 
-                    font-size: 12px;
-                    font-weight: 700;
-                    horizontal-alignment: center;
-                }
-                
-                HorizontalBox {
-                    alignment: center;
-                    spacing: 15px;
-                    Rectangle { height: 60px; }
-                    GlowingButton { text: "Back"; primary: false; clicked => { root.active_step = 2; } }
-                    GlowingButton { 
-                        text: "Initialize Protocol"; 
-                        primary: true; 
-                        clicked => { 
-                            root.active_step = 4;
-                            InstallerLogic.start_install(
-                                root.selected_disk, root.selected_mode, root.selected_part,
-                                root.in_hostname, root.in_username, root.in_password,
-                                root.in_root_password, root.selected_browser,
-                                root.perf_enabled ? "Y" : "N", root.selected_de, root.selected_boot
-                            );
-                        } 
-                    }
-                }
-            }
-
-            // ==========================================
-            // STEP 4: Live Progress Screen w/ Toggle Console
-            // ==========================================
-            if (root.active_step == 4) : VerticalBox {
-                alignment: center;
-                spacing: 20px; 
-                padding-left: 60px;
-                padding-right: 60px;
-                
-                Text {
-                    text: "DEPLOYING INFRASTRUCTURE";
-                    font-size: 20px;
-                    font-weight: 800;
-                    color: #A5F3FC;
-                    horizontal-alignment: center;
-                    letter-spacing: 2px;
-                }
-                
-                ProgressIndicator {
-                    progress: InstallerLogic.progress;
-                    height: 22px;
-                }
-                
-                Text {
-                    text: InstallerLogic.status_text;
-                    color: #9CA3AF;
-                    font-size: 14px;
-                    horizontal-alignment: center;
-                }
-
-                // --- THE DROPDOWN TOGGLE ---
-                TouchArea {
-                    mouse-cursor: pointer;
-                    height: 20px;
-                    clicked => { root.show_console = !root.show_console; }
+                    spacing: 25px;
                     
-                    Text {
-                        // Flips the arrow and changes color based on state
-                        text: root.show_console ? "▼ Hide Deployment Logs" : "▶ View Deployment Logs";
-                        color: root.show_console ? #06B6D4 : #6B7280;
-                        font-size: 12px;
-                        font-weight: 600;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                        
-                        animate color { duration: 200ms; easing: ease-out; }
+                    VerticalBox {
+                        spacing: 5px;
+                        Text { text: "Kestrel Arch"; font-size: 56px; font-weight: 800; color: #A5F3FC; horizontal-alignment: center; letter-spacing: -1px; }
+                        Text { text: "Installer"; font-size: 56px; font-weight: 800; color: #A5F3FC; horizontal-alignment: center; letter-spacing: -1px; }
+                    }
+                    
+                    Text { 
+                        text: "Efficient. Robust. Custom configurations. Built to scale your infrastructure, every time."; 
+                        font-size: 13px; 
+                        color: #9CA3AF; 
+                        horizontal-alignment: center; 
+                    }
+
+                    HorizontalBox {
+                        alignment: center;
+                        spacing: 20px;
+                        GlowingButton { text: "Begin Installation"; primary: true; clicked => { root.active_step = 1; } }
                     }
                 }
 
-                // --- THE TERMINAL CONSOLE (Hidden by default) ---
-                if (root.show_console) : Rectangle {
-                    background: #000000;
-                    border-radius: 8px;
-                    border-width: 1px;
-                    border-color: #1F2937;
-                    height: 200px;
-                    width: 100%;
-                    clip: true; 
+                // --- STEP 1: Storage & Strategy ---
+                if (root.active_step == 1) : VerticalBox {
+                    alignment: center;
+                    spacing: 12px;
+                    padding-left: 60px;
+                    padding-right: 60px;
+                    
+                    Text { text: "System Configuration"; font-size: 22px; font-weight: 700; color: #A5F3FC; horizontal-alignment: center; }
+                    Rectangle { height: 10px; } 
 
-                    Flickable {
-                        viewport-height: log_text.preferred-height;
-                        padding: 15px;
+                    VerticalBox {
+                        spacing: 6px;
+                        Text { text: "Target Drive:"; font-size: 13px; font-weight: 600; color: #D1D5DB; }
+                        ComboBox { model: root.available_disks; current-value: root.selected_disk; selected(val) => { root.selected_disk = val; } height: 38px; }
+                    }
+
+                    VerticalBox {
+                        spacing: 6px;
+                        Text { text: "Installation Mode:"; font-size: 13px; font-weight: 600; color: #D1D5DB; }
+                        ComboBox { 
+                            model: ["Choose mode of installation", "1. Online (Download Latest)", "2. Offline (Fast, Local Cache)"]; 
+                            current-value: root.selected_mode; 
+                            selected(val) => { root.selected_mode = val; } 
+                            height: 38px; 
+                        }
+                    }
+                    
+                    VerticalBox {
+                        spacing: 6px;
+                        Text { text: "Partitioning Strategy:"; font-size: 13px; font-weight: 600; color: #D1D5DB; }
+                        ComboBox { 
+                            model: ["1. SAFE MULTI-BOOT (Alongside OS)", "2. REPLACE LINUX (Wipe Linux Partitions)", "3. HARD NUKE (Wipe Entire Drive)", "4. WINDOWS RESIZE (Shrink C: Drive)", "5. TARGET NUKE (Wipe C: Drive Only)"]; 
+                            current-value: root.selected_part; 
+                            selected(val) => { root.selected_part = val; } 
+                            height: 38px; 
+                        }
+                    }
+                    
+                    HorizontalBox {
+                        alignment: center;
+                        spacing: 15px;
+                        Rectangle { height: 20px; } 
+                        GlowingButton { text: "Cancel"; primary: false; clicked => { root.active_step = 0; } }
                         
-                        log_text := Text {
-                            text: InstallerLogic.console_log;
-                            color: #10B981; 
-                            font-size: 12px;
-                            font-family: "monospace"; 
-                            wrap: word-wrap;
-                            horizontal-alignment: left;
-                            vertical-alignment: top;
+                        GlowingButton { 
+                            text: "Next Step"; 
+                            primary: true; 
+                            clicked => { 
+                                if (root.selected_mode == "Choose mode of installation") {
+                                    root.error_message = "Please select an Installation Mode before proceeding.";
+                                    root.show_error_popup = true;
+                                } else {
+                                    root.active_step = 2; 
+                                }
+                            } 
                         }
                     }
                 }
-            }
 
-            // ==========================================
-            // STEP 99: Complete Screen
-            // ==========================================
-            if (root.active_step == 99) : VerticalBox {
-                alignment: center;
-                spacing: 15px;
-                
-                Text {
-                    text: "DEPLOYMENT SUCCESSFUL";
-                    font-size: 28px;
-                    font-weight: 800;
-                    color: #A5F3FC; 
-                    horizontal-alignment: center;
-                    letter-spacing: 2px;
+                // --- STEP 2: Account Creation ---
+                if (root.active_step == 2) : VerticalBox {
+                    alignment: center;
+                    spacing: 10px;
+                    padding-left: 60px;
+                    padding-right: 60px;
+
+                    Text { text: "User Credentials"; font-size: 22px; font-weight: 700; color: #A5F3FC; horizontal-alignment: center; }
+                    Rectangle { height: 10px; } 
+
+                    VerticalBox {
+                        spacing: 4px;
+                        Text { text: "System Hostname:"; font-size: 13px; font-weight: 500; color: #D1D5DB; }
+                        LineEdit { text: root.in_hostname; edited(val) => { root.in_hostname = val; } height: 38px; }
+                    }
+
+                    VerticalBox {
+                        spacing: 4px;
+                        Text { text: "Username:"; font-size: 13px; font-weight: 500; color: #D1D5DB; }
+                        LineEdit { text: root.in_username; edited(val) => { root.in_username = val; } height: 38px; }
+                    }
+
+                    VerticalBox {
+                        spacing: 4px;
+                        Text { text: "User Password:"; font-size: 13px; font-weight: 500; color: #D1D5DB; }
+                        LineEdit { input-type: password; text: root.in_password; edited(val) => { root.in_password = val; } height: 38px; }
+                    }
+
+                    VerticalBox {
+                        spacing: 4px;
+                        Text { text: "Root Password (leave blank to match User):"; font-size: 13px; font-weight: 500; color: #D1D5DB; }
+                        LineEdit { input-type: password; text: root.in_root_password; edited(val) => { root.in_root_password = val; } height: 38px; }
+                    }
+
+                    HorizontalBox {
+                        alignment: center;
+                        spacing: 15px;
+                        Rectangle { height: 20px; }
+                        GlowingButton { text: "Back"; primary: false; clicked => { root.active_step = 1; } }
+                        
+                        GlowingButton { 
+                            text: "Next Step"; 
+                            primary: true; 
+                            clicked => { 
+                                if (root.in_hostname == "" || root.in_username == "" || root.in_password == "") {
+                                    root.error_message = "System Hostname, Username, and User Password cannot be left blank.";
+                                    root.show_error_popup = true;
+                                } else {
+                                    root.active_step = 3; 
+                                }
+                            } 
+                        }
+                    }
                 }
-                Text {
-                    text: "Kestrel Arch has been successfully deployed.\nYou may now reboot your system.";
-                    color: #9CA3AF;
-                    font-size: 14px;
-                    horizontal-alignment: center;
+
+                // --- STEP 3: Software & Deployment ---
+                if (root.active_step == 3) : VerticalBox {
+                    alignment: center;
+                    spacing: 10px;
+                    padding-left: 60px;
+                    padding-right: 60px;
+                    
+                    Text { text: "Environment Setup"; font-size: 22px; font-weight: 700; color: #A5F3FC; horizontal-alignment: center; }
+                    Rectangle { height: 10px; }
+
+                    VerticalBox {
+                        spacing: 4px;
+                        Text { text: "Default Browser:"; font-size: 13px; font-weight: 600; color: #D1D5DB; }
+                        ComboBox { 
+                            model: ["1. Zen Browser (Recommended)", "2. LibreWolf", "3. Firefox", "4. Brave"]; 
+                            current-value: root.selected_browser; 
+                            selected(val) => { root.selected_browser = val; } 
+                            height: 38px; 
+                        }
+                    }
+
+                    VerticalBox {
+                        spacing: 4px;
+                        Text { text: "Desktop Environment:"; font-size: 13px; font-weight: 600; color: #D1D5DB; }
+                        ComboBox { 
+                            model: ["Choose your environment", "1. Hyprland", "2. KDE Plasma", "3. XFCE", "4. GNOME", "5. Sway", "6. i3-wm", "7. Cinnamon", "8. Niri", "9. Qtile", "10. Wayfire", "11. bspwm", "12. Budgie", "13. Cosmic", "14. LXDE", "15. LXQt", "16. Mate", "17. Openbox"]; 
+                            current-value: root.selected_de; 
+                            selected(val) => { root.selected_de = val; } 
+                            height: 38px; 
+                        }
+                    }
+
+                    VerticalBox {
+                        spacing: 4px;
+                        Text { text: "Boot Manager:"; font-size: 13px; font-weight: 600; color: #D1D5DB; }
+                        ComboBox { 
+                            model: ["1. GRUB", "2. systemd-boot", "3. rEFInd", "4. Limine"]; 
+                            current-value: root.selected_boot; 
+                            selected(val) => { root.selected_boot = val; } 
+                            height: 38px; 
+                        }
+                    }
+                    
+                    CheckBox {
+                        text: "Apply Hyper-Performance Matrix (ZRAM, Fast I/O)";
+                        checked: root.perf_enabled;
+                        toggled => { root.perf_enabled = !root.perf_enabled; }
+                    }
+
+                    Text {
+                        text: "WARNING: Review partitioning choice. Proceeding will write to disk.";
+                        color: #EF4444; 
+                        font-size: 12px;
+                        font-weight: 700;
+                        horizontal-alignment: center;
+                    }
+                    
+                    HorizontalBox {
+                        alignment: center;
+                        spacing: 15px;
+                        Rectangle { height: 10px; }
+                        GlowingButton { text: "Back"; primary: false; clicked => { root.active_step = 2; } }
+                        
+                        GlowingButton { 
+                            text: "Initialize Protocol"; 
+                            primary: true; 
+                            clicked => { 
+                                if (root.selected_de == "Choose your environment") {
+                                    root.error_message = "Please select a Desktop Environment before initializing the protocol.";
+                                    root.show_error_popup = true;
+                                } else {
+                                    root.active_step = 4;
+                                    InstallerLogic.start_install(
+                                        root.selected_disk, root.selected_mode, root.selected_part,
+                                        root.in_hostname, root.in_username, root.in_password,
+                                        root.in_root_password, root.selected_browser,
+                                        root.perf_enabled ? "Y" : "N", root.selected_de, root.selected_boot
+                                    );
+                                }
+                            } 
+                        }
+                    }
+                }
+
+                // --- STEP 4: Live Progress Screen w/ Toggle Console ---
+                if (root.active_step == 4) : VerticalBox {
+                    alignment: center;
+                    spacing: 15px; 
+                    padding-left: 50px;
+                    padding-right: 50px;
+                    
+                    Text { text: "DEPLOYING INFRASTRUCTURE"; font-size: 20px; font-weight: 800; color: #A5F3FC; horizontal-alignment: center; letter-spacing: 2px; }
+                    
+                    ProgressIndicator { progress: InstallerLogic.progress; height: 22px; }
+                    
+                    Text { text: InstallerLogic.status_text; color: #9CA3AF; font-size: 14px; horizontal-alignment: center; }
+
+                    TouchArea {
+                        mouse-cursor: pointer;
+                        height: 20px;
+                        clicked => { root.show_console = !root.show_console; }
+                        Text {
+                            text: root.show_console ? "▼ Hide Deployment Logs" : "▶ View Deployment Logs";
+                            color: root.show_console ? #06B6D4 : #6B7280;
+                            font-size: 12px;
+                            font-weight: 600;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                            animate color { duration: 100ms; easing: ease-out; }
+                        }
+                    }
+
+                    if (root.show_console) : Rectangle {
+                        background: #000000;
+                        border-radius: 8px;
+                        border-width: 1px;
+                        border-color: #1F2937;
+                        height: 220px; 
+                        width: 100%;
+                        clip: true; 
+
+                        ScrollView {
+                            width: 100%;
+                            height: 100%;
+                            viewport-height: log_text.preferred-height + 30px;
+                            
+                            VerticalBox {
+                                padding: 15px;
+                                log_text := Text {
+                                    text: InstallerLogic.console_log;
+                                    color: #10B981; 
+                                    font-size: 12px;
+                                    // UX FIX: Force the terminal output to use Cascadia Code
+                                    font-family: "Cascadia Code", "Consolas", monospace; 
+                                    wrap: word-wrap;
+                                    horizontal-alignment: left;
+                                    vertical-alignment: top;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // --- STEP 99: Complete Screen ---
+                if (root.active_step == 99) : VerticalBox {
+                    alignment: center;
+                    spacing: 15px;
+                    
+                    Text { text: "DEPLOYMENT SUCCESSFUL"; font-size: 28px; font-weight: 800; color: #A5F3FC; horizontal-alignment: center; letter-spacing: 2px; }
+                    Text { text: "Kestrel Arch has been successfully deployed.\nYou may now reboot your system."; color: #9CA3AF; font-size: 14px; horizontal-alignment: center; }
                 }
             }
         }
@@ -404,34 +432,41 @@ export component InstallerWindow inherits Window {
     // ERROR MODAL OVERLAY
     // ==========================================
     if (root.show_error_popup) : Rectangle {
+        width: 100%;
+        height: 100%;
         background: #000000D0; 
+        
         VerticalBox {
             alignment: center;
-            padding: 40px;
-            
-            Rectangle {
-                background: #040D14;
-                border-radius: 12px;
-                border-width: 1px;
-                border-color: #EF4444; 
-                width: 550px;
-                drop-shadow-color: #EF444440; 
-                drop-shadow-blur: 30px;
-                
-                VerticalBox {
-                    padding: 30px;
-                    spacing: 20px;
+            HorizontalBox {
+                alignment: center;
+                Rectangle {
+                    width: 550px;
+                    height: 250px;
                     
-                    Text { text: "SYSTEM FAULT DETECTED"; font-size: 18px; font-weight: 800; color: #EF4444; horizontal-alignment: center; letter-spacing: 1px; }
-                    Text { text: root.error_message; font-size: 14px; color: #F3F4F6; horizontal-alignment: center; wrap: word-wrap; }
+                    background: #040D14;
+                    border-radius: 12px;
+                    border-width: 1px;
+                    border-color: #EF4444; 
+                    drop-shadow-color: #EF444440; 
+                    drop-shadow-blur: 30px;
                     
-                    HorizontalBox {
+                    VerticalBox {
+                        padding: 30px;
+                        spacing: 20px;
                         alignment: center;
-                        padding-top: 10px;
-                        GlowingButton { 
-                            text: "Acknowledge"; 
-                            primary: false;
-                            clicked => { root.show_error_popup = false; } 
+                        
+                        Text { text: "SYSTEM FAULT DETECTED"; font-size: 18px; font-weight: 800; color: #EF4444; horizontal-alignment: center; letter-spacing: 1px; }
+                        Text { text: root.error_message; font-size: 14px; color: #F3F4F6; horizontal-alignment: center; wrap: word-wrap; }
+                        
+                        HorizontalBox {
+                            alignment: center;
+                            padding-top: 10px;
+                            GlowingButton { 
+                                text: "Okay, got it!"; 
+                                primary: false;
+                                clicked => { root.show_error_popup = false; } 
+                            }
                         }
                     }
                 }
