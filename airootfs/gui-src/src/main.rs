@@ -115,6 +115,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 .env("BOOT_CHOICE", &boot_num)
                 .env("NON_INTERACTIVE", "1") 
                 .stdout(Stdio::piped())
+                // Redirect stderr to stdout so errors show up in the console window too
                 .stderr(Stdio::piped())
                 .spawn()
                 .expect("Failed to execute Kestrel bash script");
@@ -123,6 +124,9 @@ fn main() -> Result<(), slint::PlatformError> {
             let reader = BufReader::new(stdout);
 
             let mut current_progress: f32 = 0.0;
+            
+            // --- NEW: Initialize the log string ---
+            let mut full_log = String::from("> Initiating Kestrel Arch Deployment Protocol...\n> Reading configuration matrix...\n");
 
             for line in reader.lines() {
                 if let Ok(output) = line {
@@ -135,13 +139,22 @@ fn main() -> Result<(), slint::PlatformError> {
                         current_progress = 0.85;
                     }
 
+                    // --- NEW: Append new line to the full log ---
+                    full_log.push_str("> ");
+                    full_log.push_str(&output);
+                    full_log.push('\n');
+
                     let status_text = output.clone();
+                    let log_update = full_log.clone();
+                    
                     slint::invoke_from_event_loop({
                         let ui_handle = ui_handle.clone();
                         move || {
                             if let Some(ui) = ui_handle.upgrade() {
                                 ui.global::<InstallerLogic>().set_status_text(status_text.into());
                                 ui.global::<InstallerLogic>().set_progress(current_progress);
+                                // Push the massive string to the GUI
+                                ui.global::<InstallerLogic>().set_console_log(log_update.into());
                             }
                         }
                     }).unwrap();
@@ -150,15 +163,22 @@ fn main() -> Result<(), slint::PlatformError> {
             
             let status = child.wait().expect("Failed to wait on backend process");
 
+            // Final error catch to append to log if it crashes
+            if !status.success() {
+                full_log.push_str("\n[!] CRITICAL FAULT: Deployment process exited with a non-zero status code.");
+            }
+            let final_log = full_log.clone();
+
             slint::invoke_from_event_loop({
                 let ui_handle = ui_handle.clone();
                 move || {
                     if let Some(ui) = ui_handle.upgrade() {
                         if status.success() {
                             ui.global::<InstallerLogic>().set_progress(1.0);
-                            ui.set_active_step(99); // Moved "Success" screen to an end state number
+                            ui.set_active_step(99);
                         } else {
                             ui.global::<InstallerLogic>().set_status_text("Installation failed! Check console output.".into());
+                            ui.global::<InstallerLogic>().set_console_log(final_log.into());
                         }
                     }
                 }
