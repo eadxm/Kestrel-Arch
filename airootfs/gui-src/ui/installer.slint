@@ -14,12 +14,12 @@ export component InstallerWindow inherits Window {
     // Deep, professional slate background (MacOS/Windows 11 dark mode style)
     background: #0B0F19; 
     
-    // FIXED: Slint requires the entire fallback list to be inside a single string
+    // Modern typographic stack prioritizing clean sans-serifs
     default-font-family: "Inter, Montserrat, Segoe UI, Roboto, sans-serif";
 
-    // Full screen scaling for Cage kiosk mode
-    width: 100%;
-    height: 100%;
+    // FIXED: Removed 100%. Cage will force fullscreen automatically.
+    width: 1024px;
+    height: 768px;
 
     in-out property <int> active_step: 0;
     
@@ -159,7 +159,8 @@ export component InstallerWindow inherits Window {
 
                         VerticalBox {
                             spacing: 6px;
-                            Text { text: "Installation Mode:"; font-size: 13px; font-weight: 600; color: #D1D5DB; padding-top: 5px; }
+                            // FIXED: Removed padding-top from Text
+                            Text { text: "Installation Mode:"; font-size: 13px; font-weight: 600; color: #D1D5DB; }
                             ComboBox {
                                 model: ["1. Online (Download Latest)", "2. Offline (Fast, Local Cache)"];
                                 current-value: root.selected_mode;
@@ -170,7 +171,8 @@ export component InstallerWindow inherits Window {
                         
                         VerticalBox {
                             spacing: 6px;
-                            Text { text: "Partitioning Strategy:"; font-size: 13px; font-weight: 600; color: #D1D5DB; padding-top: 5px; }
+                            // FIXED: Removed padding-top from Text
+                            Text { text: "Partitioning Strategy:"; font-size: 13px; font-weight: 600; color: #D1D5DB; }
                             ComboBox {
                                 model: ["1. SAFE MULTI-BOOT (Alongside OS)", "2. REPLACE LINUX (Wipe Linux Partitions)", "3. HARD NUKE (Wipe Entire Drive)", "4. WINDOWS RESIZE (Shrink C: Drive)", "5. TARGET NUKE (Wipe C: Drive Only)"];
                                 current-value: root.selected_part;
@@ -284,13 +286,13 @@ export component InstallerWindow inherits Window {
                             toggled => { root.perf_enabled = !root.perf_enabled; }
                         }
 
+                        // FIXED: Removed padding-top from Text, added to a parent box if needed or rely on spacing
                         Text {
                             text: "WARNING: Review partitioning choice. Proceeding will write to disk.";
                             color: #EF4444; // Professional Tailwind Red
                             font-size: 12px;
                             font-weight: 700;
                             horizontal-alignment: center;
-                            padding-top: 10px;
                         }
                         
                         HorizontalBox {
