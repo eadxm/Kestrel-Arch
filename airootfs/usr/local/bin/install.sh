@@ -58,6 +58,10 @@ if [ "$NON_INTERACTIVE" = "1" ]; then
     update_status "PROGRESS: Initializing non-interactive GUI deployment..."
     echo "[INFO] Non-Interactive GUI Mode Engaged."
     
+    # KILL THE CLEAR COMMAND IN GUI MODE
+    # This completely prevents ANSI escape codes from corrupting the UI text
+    clear() { :; }
+    
     # 1. Drive & Mode
     TARGET_DRIVE="${TARGET_DISK}"
     INSTALL_MODE="${INSTALL_MODE:-2}"
@@ -88,7 +92,7 @@ fi
 
 clear
 echo "=========================================================="
-echo "                KESTREL ARCH DEPLOYMENT ENGINE                "
+echo "                 KESTREL ARCH DEPLOYMENT ENGINE                 "
 echo "=========================================================="
 echo ""
 
