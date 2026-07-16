@@ -14,8 +14,8 @@ export component InstallerWindow inherits Window {
     // Deep, professional slate background (MacOS/Windows 11 dark mode style)
     background: #0B0F19; 
     
-    // Modern typographic stack prioritizing clean sans-serifs
-    default-font-family: "Inter", "Montserrat", "Segoe UI", "Roboto", sans-serif;
+    // FIXED: Slint requires the entire fallback list to be inside a single string
+    default-font-family: "Inter, Montserrat, Segoe UI, Roboto, sans-serif";
 
     // Full screen scaling for Cage kiosk mode
     width: 100%;
@@ -79,7 +79,6 @@ export component InstallerWindow inherits Window {
                             image-fit: contain;
                         }
                         
-                        // Updated to match your exact image subtext
                         Text {
                             text: "EFFICIENT. SECURE. SELF-CONTAINED.";
                             font-size: 11px;
