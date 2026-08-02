@@ -14,7 +14,6 @@ error_handler() {
     local exit_code=$1
     local line_number=$2
     
-    # Bridge the error to the Rust GUI
     update_status "ERROR: Failed at line $line_number (Code: $exit_code). Check installation logs."
     
     echo -e "\n=========================================================="
@@ -58,32 +57,24 @@ if [ "$NON_INTERACTIVE" = "1" ]; then
     update_status "PROGRESS: Initializing non-interactive GUI deployment..."
     echo "[INFO] Non-Interactive GUI Mode Engaged."
     
-    # KILL THE CLEAR COMMAND IN GUI MODE
-    # This completely prevents ANSI escape codes from corrupting the UI text
     clear() { :; }
     
-    # 1. Drive & Mode
     TARGET_DRIVE="${TARGET_DISK}"
     INSTALL_MODE="${INSTALL_MODE:-2}"
-    
-    # 2. Partitioning Strategy (Defaults to 3 / Hard Nuke if GUI doesn't pass one)
     USER_CHOICE="${PARTITION_STRATEGY:-3}"
     CONFIRM_NUKE="YES"
     PROCEED_RESIZE="Y"
     
-    # Advanced GUI Partitioning Targets (Used later for dual-booting)
     ARCH_ROOT="${GUI_ARCH_ROOT:-}"
     ARCH_EFI="${GUI_ARCH_EFI:-}"
     C_DRIVE="${GUI_C_DRIVE:-}"
     ARCH_SIZE_GB="${GUI_ARCH_SIZE_GB:-}"
     
-    # 3. Account Details
     system_hostname="${GUI_HOSTNAME:-kestrel}"
     username="${GUI_USERNAME:-kestrel}"
     user_password="${GUI_PASSWORD:-password}"
     root_password="${GUI_ROOT_PASSWORD:-$user_password}"
     
-    # 4. Software Config
     BROWSER_CHOICE="${BROWSER_CHOICE:-1}"
     PERF_CHOICE="${PERF_CHOICE:-Y}"
     DE_CHOICE="${DE_CHOICE:-1}" 
@@ -103,7 +94,8 @@ EFI_DIR="/boot/efi"
 ARCH_ROOT="${ARCH_ROOT}"
 DISPLAY_MANAGER="sddm"
 
-CORE_PKGS="base linux-cachyos linux-cachyos-headers linux-firmware scx-scheds switcheroo-control efibootmgr os-prober ntfs-3g networkmanager iwd bluez bluez-utils blueman pipewire pipewire-pulse wireplumber brightnessctl flatpak xorg-server sudo zram-generator earlyoom reflector ttf-dejavu ttf-liberation noto-fonts noto-fonts-emoji curl chaotic-keyring chaotic-mirrorlist parted foot git stow qt5-wayland qt6-wayland"
+# FIX: Removed switcheroo-control from base packages
+CORE_PKGS="base linux-cachyos linux-cachyos-headers linux-firmware scx-scheds efibootmgr os-prober ntfs-3g networkmanager iwd bluez bluez-utils blueman pipewire pipewire-pulse wireplumber brightnessctl flatpak xorg-server sudo zram-generator earlyoom reflector ttf-dejavu ttf-liberation noto-fonts noto-fonts-emoji curl chaotic-keyring chaotic-mirrorlist parted foot git stow qt5-wayland qt6-wayland"
 
 if [ -z "$INSTALL_MODE" ]; then
     update_status "PROGRESS: Determining installation mode..."
@@ -399,6 +391,12 @@ if grep -q "AuthenticAMD" /proc/cpuinfo; then CORE_PKGS="$CORE_PKGS amd-ucode"; 
 HAS_NVIDIA=0; HAS_INTEGRATED=0
 if lspci | grep -iq nvidia; then CORE_PKGS="$CORE_PKGS nvidia nvidia-utils nvidia-prime"; HAS_NVIDIA=1; fi
 if lspci | grep -E -iq "amd|intel"; then HAS_INTEGRATED=1; fi
+
+# FIX: Conditionally add switcheroo-control ONLY if multiple GPUs are detected
+if [ "$HAS_NVIDIA" -eq 1 ] && [ "$HAS_INTEGRATED" -eq 1 ]; then
+    CORE_PKGS="$CORE_PKGS switcheroo-control"
+fi
+
 if lspci | grep -i vga | grep -iq amd; then CORE_PKGS="$CORE_PKGS xf86-video-amdgpu"; fi
 if lspci | grep -i vga | grep -iq intel; then CORE_PKGS="$CORE_PKGS intel-media-driver"; fi
 
@@ -515,7 +513,10 @@ else
     pacman-key --recv-key 3056513887B78AEB --keyserver keyserver.ubuntu.com >/dev/null 2>&1
     pacman-key --lsign-key 3056513887B78AEB >/dev/null 2>&1
     pacman -U 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst' 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst' --noconfirm >/dev/null 2>&1
-    echo -e "\n[chaotic-aur]\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> /etc/pacman.conf
+    
+    # FIX: Added 'SigLevel = Optional TrustAll' to the host's pacman config during pacstrap.
+    # This prevents pacstrap from failing signature checks on linux-cachyos before the keyring is established in the new root.
+    echo -e "\n[chaotic-aur]\nSigLevel = Optional TrustAll\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> /etc/pacman.conf
     
     trap - ERR 
     DOWNLOAD_SUCCESS=0
@@ -531,6 +532,8 @@ else
 fi
 
 mkdir -p "$TARGET/etc/pacman.d"
+
+# FIX: In the new target OS, enforce proper signature verification for Chaotic-AUR.
 echo -e "\n[chaotic-aur]\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> "$TARGET/etc/pacman.conf"
 genfstab -U "$TARGET" >> "$TARGET/etc/fstab"
 
