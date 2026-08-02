@@ -1,8 +1,10 @@
-<img width="1024" height="559" alt="Kestrel Arch Dashboard" src="https://github.com/user-attachments/assets/6f6c3e1b-453b-4701-88d7-babf8f060d98" />
-
 # Kestrel Arch: The Automated Deployment Platform
 
 An automated, hyper-optimized Arch Linux deployment system built to turn a tedious multi-hour command-line install into a **3-minute, flawless graphical deployment**. Written with a Rust/Slint GUI frontend and a robust Bash backend, it dynamically scales based on your hardware, firmware, and connectivity.
+
+<img width="1024" height="559" alt="Kestrel Arch Dashboard" src="https://github.com/user-attachments/assets/6f6c3e1b-453b-4701-88d7-babf8f060d98" />
+
+
 
 ---
 
