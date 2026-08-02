@@ -94,8 +94,24 @@ EFI_DIR="/boot/efi"
 ARCH_ROOT="${ARCH_ROOT}"
 DISPLAY_MANAGER="sddm"
 
-# FIX: Removed switcheroo-control from base packages
-CORE_PKGS="base linux-cachyos linux-cachyos-headers linux-firmware scx-scheds efibootmgr os-prober ntfs-3g networkmanager iwd bluez bluez-utils blueman pipewire pipewire-pulse wireplumber brightnessctl flatpak xorg-server sudo zram-generator earlyoom reflector ttf-dejavu ttf-liberation noto-fonts noto-fonts-emoji curl chaotic-keyring chaotic-mirrorlist parted foot git stow qt5-wayland qt6-wayland"
+# =====================================================================
+#              CPU ARCHITECTURE DETECTION (v1 vs v3)
+# =====================================================================
+# Dynamically switch between CachyOS kernel and Standard kernel based on CPU age
+if /usr/lib/ld-linux-x86-64.so.2 --help | grep -q "x86-64-v3 (supported, searched)"; then
+    echo "[INFO] Modern CPU detected (x86-64-v3). Using CachyOS Kernel."
+    KERNEL_PKG="linux-cachyos linux-cachyos-headers"
+    VMLINUZ="vmlinuz-linux-cachyos"
+    INITRAMFS="initramfs-linux-cachyos.img"
+else
+    echo "[WARNING] Legacy CPU detected. Falling back to Standard Arch Kernel."
+    update_status "WARNING: Legacy CPU detected. Using standard Arch kernel."
+    KERNEL_PKG="linux linux-headers"
+    VMLINUZ="vmlinuz-linux"
+    INITRAMFS="initramfs-linux.img"
+fi
+
+CORE_PKGS="base $KERNEL_PKG linux-firmware scx-scheds efibootmgr os-prober ntfs-3g networkmanager iwd bluez bluez-utils blueman pipewire pipewire-pulse wireplumber brightnessctl flatpak xorg-server sudo zram-generator earlyoom reflector ttf-dejavu ttf-liberation noto-fonts noto-fonts-emoji curl chaotic-keyring chaotic-mirrorlist parted foot git stow qt5-wayland qt6-wayland"
 
 if [ -z "$INSTALL_MODE" ]; then
     update_status "PROGRESS: Determining installation mode..."
@@ -245,23 +261,34 @@ case $USER_CHOICE in
         if [ -z "$CONFIRM_NUKE" ]; then read -r -p "DANGER: Type 'YES' to confirm: " CONFIRM_NUKE; fi
         [[ "${CONFIRM_NUKE^^}" != "YES" ]] && exit 1
         sleep 2
+        
+        # FIX: Thoroughly wipe filesystem headers and GPT ghosts
+        wipefs -a "$TARGET_DRIVE" &>/dev/null || true
+        
         if [ -d "/sys/firmware/efi" ]; then
-            sgdisk --zap-all "$TARGET_DRIVE"
-            sgdisk -n 1:0:+1G -t 1:ef00 -c 1:"EFI" "$TARGET_DRIVE"
-            sgdisk -n 2:0:0   -t 2:8300 -c 2:"ROOT" "$TARGET_DRIVE"
+            parted -s "$TARGET_DRIVE" mklabel gpt
+            parted -s -a optimal "$TARGET_DRIVE" mkpart primary fat32 1MiB 1025MiB
+            parted -s "$TARGET_DRIVE" set 1 esp on
+            parted -s -a optimal "$TARGET_DRIVE" mkpart primary ext4 1025MiB 100%
+            
             partprobe "$TARGET_DRIVE"; udevadm settle; sleep 2
-            mkfs.vfat -F 32 "${TARGET_DRIVE}${PART_PREFIX}1"
-            mkfs.ext4 -F "${TARGET_DRIVE}${PART_PREFIX}2"
-            mount "${TARGET_DRIVE}${PART_PREFIX}2" "$TARGET"
-            mkdir -p "$TARGET/boot/efi"
-            mount -t vfat "${TARGET_DRIVE}${PART_PREFIX}1" "$TARGET/boot/efi"
             ARCH_EFI="${TARGET_DRIVE}${PART_PREFIX}1"
+            ARCH_ROOT="${TARGET_DRIVE}${PART_PREFIX}2"
+            
+            mkfs.vfat -F 32 "$ARCH_EFI"
+            mkfs.ext4 -F "$ARCH_ROOT"
+            mount "$ARCH_ROOT" "$TARGET"
+            mkdir -p "$TARGET/boot/efi"
+            mount -t vfat "$ARCH_EFI" "$TARGET/boot/efi"
         else
-            sgdisk --zap-all "$TARGET_DRIVE" &>/dev/null || true
-            echo "label: dos" | sfdisk "$TARGET_DRIVE" &>/dev/null
-            echo ", +" | sfdisk "$TARGET_DRIVE" --force &>/dev/null
+            parted -s "$TARGET_DRIVE" mklabel msdos
+            # FIX: Start the Root partition at 2MiB to allow GRUB space to embed core.img
+            parted -s -a optimal "$TARGET_DRIVE" mkpart primary ext4 2MiB 100%
+            parted -s "$TARGET_DRIVE" set 1 boot on
+            
             partprobe "$TARGET_DRIVE"; udevadm settle; sleep 2
             ARCH_ROOT="${TARGET_DRIVE}${PART_PREFIX}1"
+            
             mkfs.ext4 -F "$ARCH_ROOT"
             mount "$ARCH_ROOT" "$TARGET"
             EFI_DIR="/boot"
@@ -392,7 +419,6 @@ HAS_NVIDIA=0; HAS_INTEGRATED=0
 if lspci | grep -iq nvidia; then CORE_PKGS="$CORE_PKGS nvidia nvidia-utils nvidia-prime"; HAS_NVIDIA=1; fi
 if lspci | grep -E -iq "amd|intel"; then HAS_INTEGRATED=1; fi
 
-# FIX: Conditionally add switcheroo-control ONLY if multiple GPUs are detected
 if [ "$HAS_NVIDIA" -eq 1 ] && [ "$HAS_INTEGRATED" -eq 1 ]; then
     CORE_PKGS="$CORE_PKGS switcheroo-control"
 fi
@@ -510,12 +536,10 @@ else
     
     pacman-key --init >/dev/null 2>&1 || true
     pacman-key --populate archlinux >/dev/null 2>&1 || true
-    pacman-key --recv-key 3056513887B78AEB --keyserver keyserver.ubuntu.com >/dev/null 2>&1
+    pacman-key --recv-key 3056513887B78AEB --keyserver hkps://keyserver.ubuntu.com >/dev/null 2>&1
     pacman-key --lsign-key 3056513887B78AEB >/dev/null 2>&1
     pacman -U 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst' 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst' --noconfirm >/dev/null 2>&1
     
-    # FIX: Added 'SigLevel = Optional TrustAll' to the host's pacman config during pacstrap.
-    # This prevents pacstrap from failing signature checks on linux-cachyos before the keyring is established in the new root.
     echo -e "\n[chaotic-aur]\nSigLevel = Optional TrustAll\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> /etc/pacman.conf
     
     trap - ERR 
@@ -533,7 +557,6 @@ fi
 
 mkdir -p "$TARGET/etc/pacman.d"
 
-# FIX: In the new target OS, enforce proper signature verification for Chaotic-AUR.
 echo -e "\n[chaotic-aur]\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> "$TARGET/etc/pacman.conf"
 genfstab -U "$TARGET" >> "$TARGET/etc/fstab"
 
@@ -567,14 +590,12 @@ if [ "$INSTALL_MODE" = "1" ]; then
     echo -e "[device]\nwifi.backend=iwd" > "$TARGET/etc/NetworkManager/conf.d/wifi_backend.conf"
 fi
 
-# Enable Display Manager, Networking, scx scheduling, and switcheroo-control for hybrid rendering UI
 arch-chroot "$TARGET" systemctl enable ${DISPLAY_MANAGER}.service NetworkManager.service iwd.service bluetooth.service systemd-timesyncd.service scx.service switcheroo-control.service || true
 arch-chroot "$TARGET" systemctl mask systemd-time-wait-sync.service
 
 mkdir -p "$TARGET/etc/bluetooth"
 echo -e "[Policy]\nAutoEnable=true" > "$TARGET/etc/bluetooth/main.conf"
 
-# Native Universal Hybrid Graphics Configuration Hook
 if [ "$HAS_NVIDIA" -eq 1 ] && [ "$HAS_INTEGRATED" -eq 1 ]; then
     echo "[INFO] Injecting hardware hybrid graphics modules settings..."
     mkdir -p "$TARGET/etc/modprobe.d"
@@ -582,9 +603,7 @@ if [ "$HAS_NVIDIA" -eq 1 ] && [ "$HAS_INTEGRATED" -eq 1 ]; then
     
     mkdir -p "$TARGET/etc/udev/rules.d"
     cat << 'EOF' > "$TARGET/etc/udev/rules.d/80-nvidia-pm.rules"
-# Enable runtime power management for NVIDIA graphics controller
 ACTION=="add", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030000", ATTR{power/control}="auto"
-# Enable runtime power management for NVIDIA audio controller
 ACTION=="add", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x040300", ATTR{power/control}="auto"
 EOF
 fi
@@ -615,7 +634,6 @@ update_status "PROGRESS: Installing Bootloader Framework..."
 echo "STARTING: Installing and deploying selected boot loader framework..."
 ROOT_UUID=$(blkid -s UUID -o value "$(lsblk -ln -p -o NAME "$TARGET_DRIVE" | grep -E "^${TARGET_DRIVE}${PART_PREFIX}[0-9]+" | sort -V | tail -n 1)")
 
-# Dynamically inject NVIDIA modeset if detected
 NVIDIA_CMDLINE=""
 if [ "$HAS_NVIDIA" -eq 1 ]; then
     NVIDIA_CMDLINE=" nvidia-drm.modeset=1"
@@ -640,9 +658,9 @@ case $BOOT_CHOICE in
         
         {
             echo "title Kestrel Arch"
-            echo "linux /vmlinuz-linux-cachyos"
+            echo "linux /$VMLINUZ"
             [ -n "$UCODE_IMG" ] && echo "initrd /${UCODE_IMG}"
-            echo "initrd /initramfs-linux-cachyos.img"
+            echo "initrd /$INITRAMFS"
             echo "options root=UUID=${ROOT_UUID} rw nowatchdog zswap.enabled=0 quiet splash mitigations=off${NVIDIA_CMDLINE}"
         } > "$TARGET/boot/loader/entries/arch.conf"
         ;;
@@ -651,7 +669,7 @@ case $BOOT_CHOICE in
         arch-chroot "$TARGET" refind-install
         UCODE_STR=""
         [ -n "$UCODE_IMG" ] && UCODE_STR="initrd=${UCODE_IMG} "
-        echo "\"Boot using default options\" \"root=UUID=${ROOT_UUID} rw ${UCODE_STR}initrd=initramfs-linux-cachyos.img nowatchdog zswap.enabled=0 quiet splash mitigations=off${NVIDIA_CMDLINE}\"" > "$TARGET/boot/refind_linux.conf"
+        echo "\"Boot using default options\" \"root=UUID=${ROOT_UUID} rw ${UCODE_STR}initrd=${INITRAMFS} nowatchdog zswap.enabled=0 quiet splash mitigations=off${NVIDIA_CMDLINE}\"" > "$TARGET/boot/refind_linux.conf"
         ;;
     4)
         # Limine
@@ -665,8 +683,8 @@ timeout: 5
 default_entry: 1
 :Kestrel Arch
     protocol: linux
-    kernel_path: boot():/vmlinuz-linux-cachyos
-    ${UCODE_STR}module_path: boot():/initramfs-linux-cachyos.img
+    kernel_path: boot():/$VMLINUZ
+    ${UCODE_STR}module_path: boot():/$INITRAMFS
     cmdline: root=UUID=${ROOT_UUID} rw nowatchdog zswap.enabled=0 quiet splash mitigations=off${NVIDIA_CMDLINE}
 EOF
         if [ ! -d "/sys/firmware/efi" ]; then
