@@ -62,11 +62,11 @@ component GlowingButton inherits Rectangle {
 export component InstallerWindow inherits Window {
     title: "Kestrel Arch Deployment Engine";
     
-    width: 1024px;
-    height: 768px;
+    // FIX 1: Replaced hardcoded width/height with preferred sizes so Wayland can expand it
+    preferred-width: 1024px;
+    preferred-height: 768px;
     background: #020617; 
     
-    // UX FIX: Valid single string for global font declaration
     default-font-family: "Geomini, Segoe UI, Roboto, sans-serif";
 
     in-out property <int> active_step: 0;
@@ -101,8 +101,9 @@ export component InstallerWindow inherits Window {
         border-width: 1px;
         border-color: #06B6D4; 
         
+        // FIX 2: Reduced shadow blur from 50px to 25px for better VM rendering
         drop-shadow-color: #06B6D430; 
-        drop-shadow-blur: 50px;
+        drop-shadow-blur: 25px;
 
         VerticalBox {
             padding: 40px;
@@ -183,7 +184,6 @@ export component InstallerWindow inherits Window {
                             current-value: root.selected_mode; 
                             selected(val) => { 
                                 root.selected_mode = val; 
-                                // Reset the DE choice so invalid options don't carry over
                                 root.selected_de = "Choose your environment";
                             } 
                             height: 38px; 
@@ -302,7 +302,6 @@ export component InstallerWindow inherits Window {
                         spacing: 4px;
                         Text { text: "Desktop Environment:"; font-size: 13px; font-weight: 600; color: #D1D5DB; }
                         ComboBox { 
-                            // Dynamically restrict options if Offline mode is selected
                             model: root.selected_mode == "2. Offline (Fast, Local Cache)" ? 
                                 ["Choose your environment", "1. Hyprland", "2. KDE Plasma", "3. XFCE"] : 
                                 ["Choose your environment", "1. Hyprland", "2. KDE Plasma", "3. XFCE", "4. GNOME", "5. Sway", "6. i3-wm", "7. Cinnamon", "8. Niri", "9. Qtile", "10. Wayfire", "11. bspwm", "12. Budgie", "13. Cosmic", "14. LXDE", "15. LXQt", "16. Mate", "17. Openbox"]; 
@@ -334,7 +333,7 @@ export component InstallerWindow inherits Window {
                         
                         Text {
                             text: "Apply Hyper-Performance Matrix (ZRAM, Fast I/O)";
-                            color: #D1D5DB; // Light gray so it's readable
+                            color: #D1D5DB; 
                             font-size: 13px;
                             font-weight: 600;
                             vertical-alignment: center;
@@ -454,6 +453,9 @@ export component InstallerWindow inherits Window {
         height: 100%;
         background: #000000D0; 
         
+        // FIX 3: Captures phantom background clicks so you can't accidentally click buttons underneath the modal!
+        TouchArea {}
+        
         VerticalBox {
             alignment: center;
             HorizontalBox {
@@ -467,7 +469,7 @@ export component InstallerWindow inherits Window {
                     border-width: 1px;
                     border-color: #EF4444; 
                     drop-shadow-color: #EF444440; 
-                    drop-shadow-blur: 30px;
+                    drop-shadow-blur: 25px; // Also reduced to prevent render-stutter
                     
                     VerticalBox {
                         padding: 30px;
