@@ -14,7 +14,7 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Build Dependencies (Including Rust)
         run: |
@@ -105,7 +105,7 @@ jobs:
           mkarchiso -v -w /tmp/archiso-tmp -o out/ /tmp/kestrel_profile/
 
       - name: Upload ISO Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: Kestrel-Arch-ISO
           path: out/*.iso
