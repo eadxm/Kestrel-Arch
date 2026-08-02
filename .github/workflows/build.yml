@@ -22,7 +22,7 @@ jobs:
           pacman -Sy --noconfirm archlinux-keyring
           pacman -Su --noconfirm
           
-          # FIX: Added libxkbcommon, libxcb, and wayland for flawless Slint GUI compilation
+          # Removed the bloated VM drivers here
           pacman -S --noconfirm archiso wget gawk mtools dosfstools erofs-utils squashfs-tools pacman-contrib rustup base-devel cmake pkgconf freetype2 fontconfig libx11 libxkbcommon libxcb wayland
           
           rustup default stable
@@ -34,7 +34,6 @@ jobs:
           
           pacman-key --init
           
-          # FIX: Using hkps:// forces the request over port 443. Standard keyservers frequently timeout on GitHub Actions runners.
           pacman-key --recv-key 3056513887B78AEB --keyserver hkps://keyserver.ubuntu.com
           pacman-key --lsign-key 3056513887B78AEB
           pacman -U 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst' 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst' --noconfirm
@@ -59,7 +58,6 @@ jobs:
 
       - name: Build Kestrel GUI
         run: |
-          # FIX: Move the fonts from the repo root into the folder Slint expects, otherwise cargo build will crash.
           mkdir -p airootfs/gui-src/ui/fonts
           cp Geomini.ttf airootfs/gui-src/ui/fonts/ 2>/dev/null || true
           cp CascadiaCode.ttf airootfs/gui-src/ui/fonts/ 2>/dev/null || true
@@ -72,6 +70,7 @@ jobs:
           cp -r /usr/share/archiso/configs/releng /tmp/kestrel_profile
           echo -e "\n[chaotic-aur]\nSigLevel = Optional TrustAll\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> /tmp/kestrel_profile/pacman.conf
           
+          # Kept the live environment lean, removed VM packages
           echo -e "zsh\ncage\nkitty\nmesa\nttf-dejavu\npolkit\npciutils\nxorg-xwayland" >> /tmp/kestrel_profile/packages.x86_64
 
           mkdir -p /tmp/kestrel_profile/airootfs/usr/local/bin
@@ -80,17 +79,14 @@ jobs:
           sed 's/\r$//' airootfs/usr/local/bin/install.sh > /tmp/kestrel_profile/airootfs/usr/local/bin/install.sh
           cp airootfs/gui-src/target/release/kestrel-gui /tmp/kestrel_profile/airootfs/usr/local/bin/kestrel-gui
           
-          # FIX: Cleaned up the profiledef permissions injection to be safer and avoid regex panics
           sed -i '/file_permissions=(/a \  ["/usr/local/bin/install.sh"]="0:0:755"\n  ["/usr/local/bin/kestrel-gui"]="0:0:755"' /tmp/kestrel_profile/profiledef.sh
           
-          # Force highest ZSTD compression for the live ISO
           sed -i 's/^compressor=.*/compressor="zstd"/' /tmp/kestrel_profile/profiledef.sh
           sed -i 's/^#compression_level=.*/compression_level=19/' /tmp/kestrel_profile/profiledef.sh
 
           cat << 'EOF' > /tmp/kestrel_profile/airootfs/root/.zlogin
           export XDG_RUNTIME_DIR=/run/user/$(id -u)
           
-          # Enforce software cursor to fix vanishing mouse bug in VMs
           export WLR_NO_HARDWARE_CURSORS=1
           
           IS_VM=$(systemd-detect-virt -q && echo 1 || echo 0)
