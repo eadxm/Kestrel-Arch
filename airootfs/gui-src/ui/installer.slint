@@ -181,7 +181,11 @@ export component InstallerWindow inherits Window {
                         ComboBox { 
                             model: ["Choose mode of installation", "1. Online (Download Latest)", "2. Offline (Fast, Local Cache)"]; 
                             current-value: root.selected_mode; 
-                            selected(val) => { root.selected_mode = val; } 
+                            selected(val) => { 
+                                root.selected_mode = val; 
+                                // Reset the DE choice so invalid options don't carry over
+                                root.selected_de = "Choose your environment";
+                            } 
                             height: 38px; 
                         }
                     }
@@ -298,7 +302,10 @@ export component InstallerWindow inherits Window {
                         spacing: 4px;
                         Text { text: "Desktop Environment:"; font-size: 13px; font-weight: 600; color: #D1D5DB; }
                         ComboBox { 
-                            model: ["Choose your environment", "1. Hyprland", "2. KDE Plasma", "3. XFCE", "4. GNOME", "5. Sway", "6. i3-wm", "7. Cinnamon", "8. Niri", "9. Qtile", "10. Wayfire", "11. bspwm", "12. Budgie", "13. Cosmic", "14. LXDE", "15. LXQt", "16. Mate", "17. Openbox"]; 
+                            // Dynamically restrict options if Offline mode is selected
+                            model: root.selected_mode == "2. Offline (Fast, Local Cache)" ? 
+                                ["Choose your environment", "1. Hyprland", "2. KDE Plasma", "3. XFCE"] : 
+                                ["Choose your environment", "1. Hyprland", "2. KDE Plasma", "3. XFCE", "4. GNOME", "5. Sway", "6. i3-wm", "7. Cinnamon", "8. Niri", "9. Qtile", "10. Wayfire", "11. bspwm", "12. Budgie", "13. Cosmic", "14. LXDE", "15. LXQt", "16. Mate", "17. Openbox"]; 
                             current-value: root.selected_de; 
                             selected(val) => { root.selected_de = val; } 
                             height: 38px; 
@@ -316,10 +323,22 @@ export component InstallerWindow inherits Window {
                         }
                     }
                     
-                    CheckBox {
-                        text: "Apply Hyper-Performance Matrix (ZRAM, Fast I/O)";
-                        checked: root.perf_enabled;
-                        toggled => { root.perf_enabled = !root.perf_enabled; }
+                    HorizontalBox {
+                        alignment: start;
+                        spacing: 8px;
+                        
+                        CheckBox {
+                            checked: root.perf_enabled;
+                            toggled => { root.perf_enabled = !root.perf_enabled; }
+                        }
+                        
+                        Text {
+                            text: "Apply Hyper-Performance Matrix (ZRAM, Fast I/O)";
+                            color: #D1D5DB; // Light gray so it's readable
+                            font-size: 13px;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                        }
                     }
 
                     Text {
@@ -405,7 +424,6 @@ export component InstallerWindow inherits Window {
                                     text: InstallerLogic.console_log;
                                     color: #10B981; 
                                     font-size: 12px;
-                                    // UX FIX: Valid single string for terminal font
                                     font-family: "Cascadia Code, Consolas, monospace"; 
                                     wrap: word-wrap;
                                     horizontal-alignment: left;
