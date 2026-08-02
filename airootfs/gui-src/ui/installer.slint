@@ -66,8 +66,8 @@ export component InstallerWindow inherits Window {
     height: 768px;
     background: #020617; 
     
-    // UX FIX: Set the global font to your custom Geomini font
-    default-font-family: "Geomini", "Segoe UI", "Roboto", sans-serif;
+    // UX FIX: Valid single string for global font declaration
+    default-font-family: "Geomini, Segoe UI, Roboto, sans-serif";
 
     in-out property <int> active_step: 0;
     in-out property <string> error_message: "";
@@ -405,8 +405,8 @@ export component InstallerWindow inherits Window {
                                     text: InstallerLogic.console_log;
                                     color: #10B981; 
                                     font-size: 12px;
-                                    // UX FIX: Force the terminal output to use Cascadia Code
-                                    font-family: "Cascadia Code", "Consolas", monospace; 
+                                    // UX FIX: Valid single string for terminal font
+                                    font-family: "Cascadia Code, Consolas, monospace"; 
                                     wrap: word-wrap;
                                     horizontal-alignment: left;
                                     vertical-alignment: top;
