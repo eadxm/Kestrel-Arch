@@ -13,9 +13,8 @@ jobs:
       options: --privileged
 
     steps:
-      # Updated to v8 for ESM support and secure PR handling
       - name: Checkout Repository
-        uses: actions/checkout@v8
+        uses: actions/checkout@v4
 
       - name: Install Build Dependencies (Including Rust)
         run: |
@@ -23,6 +22,7 @@ jobs:
           pacman -Sy --noconfirm archlinux-keyring
           pacman -Su --noconfirm
           
+          # Removed the bloated VM drivers here
           pacman -S --noconfirm archiso wget gawk mtools dosfstools erofs-utils squashfs-tools pacman-contrib rustup base-devel cmake pkgconf freetype2 fontconfig libx11 libxkbcommon libxcb wayland
           
           rustup default stable
@@ -70,6 +70,7 @@ jobs:
           cp -r /usr/share/archiso/configs/releng /tmp/kestrel_profile
           echo -e "\n[chaotic-aur]\nSigLevel = Optional TrustAll\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> /tmp/kestrel_profile/pacman.conf
           
+          # Kept the live environment lean, removed VM packages
           echo -e "zsh\ncage\nkitty\nmesa\nttf-dejavu\npolkit\npciutils\nxorg-xwayland" >> /tmp/kestrel_profile/packages.x86_64
 
           mkdir -p /tmp/kestrel_profile/airootfs/usr/local/bin
@@ -105,9 +106,8 @@ jobs:
           mkdir -p out/
           mkarchiso -v -w /tmp/archiso-tmp -o out/ /tmp/kestrel_profile/
 
-      # Updated to v7 to support unzipped artifacts and resolve Node.js deprecations
       - name: Upload ISO Artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: Kestrel-Arch-ISO
           path: out/*.iso
