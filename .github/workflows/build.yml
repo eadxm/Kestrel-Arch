@@ -21,7 +21,9 @@ jobs:
           echo 'Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch' > /etc/pacman.d/mirrorlist
           pacman -Sy --noconfirm archlinux-keyring
           pacman -Su --noconfirm
-          pacman -S --noconfirm archiso wget gawk mtools dosfstools erofs-utils squashfs-tools pacman-contrib rustup base-devel cmake pkgconf freetype2 fontconfig libx11
+          
+          # FIX: Added libxkbcommon, libxcb, and wayland for flawless Slint GUI compilation
+          pacman -S --noconfirm archiso wget gawk mtools dosfstools erofs-utils squashfs-tools pacman-contrib rustup base-devel cmake pkgconf freetype2 fontconfig libx11 libxkbcommon libxcb wayland
           
           rustup default stable
 
@@ -31,14 +33,16 @@ jobs:
           mkdir -p /tmp/empty_db/local
           
           pacman-key --init
-          pacman-key --recv-key 3056513887B78AEB --keyserver keyserver.ubuntu.com
+          
+          # FIX: Using hkps:// forces the request over port 443. Standard keyservers frequently timeout on GitHub Actions runners.
+          pacman-key --recv-key 3056513887B78AEB --keyserver hkps://keyserver.ubuntu.com
           pacman-key --lsign-key 3056513887B78AEB
           pacman -U 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst' 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst' --noconfirm
           echo -e "\n[chaotic-aur]\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> /etc/pacman.conf
 
           # Base Deployment Engine Packages
           pacman -Syw --cachedir airootfs/opt/offline_cache --dbpath /tmp/empty_db --noconfirm \
-            base linux-cachyos linux-cachyos-headers linux-firmware scx-scheds efibootmgr os-prober ntfs-3g networkmanager iwd bluez bluez-utils blueman \
+            base linux-cachyos linux-cachyos-headers linux-firmware scx-scheds switcheroo-control efibootmgr os-prober ntfs-3g networkmanager iwd bluez bluez-utils blueman \
             pipewire pipewire-pulse wireplumber brightnessctl flatpak xorg-server sddm sudo zram-generator earlyoom \
             reflector ttf-dejavu ttf-liberation noto-fonts noto-fonts-emoji curl chaotic-keyring chaotic-mirrorlist parted \
             amd-ucode intel-ucode nvidia nvidia-utils nvidia-prime xf86-video-amdgpu intel-media-driver \
@@ -55,6 +59,11 @@ jobs:
 
       - name: Build Kestrel GUI
         run: |
+          # FIX: Move the fonts from the repo root into the folder Slint expects, otherwise cargo build will crash.
+          mkdir -p airootfs/gui-src/ui/fonts
+          cp Geomini.ttf airootfs/gui-src/ui/fonts/ 2>/dev/null || true
+          cp CascadiaCode.ttf airootfs/gui-src/ui/fonts/ 2>/dev/null || true
+          
           cd airootfs/gui-src
           cargo build --release
 
@@ -71,17 +80,17 @@ jobs:
           sed 's/\r$//' airootfs/usr/local/bin/install.sh > /tmp/kestrel_profile/airootfs/usr/local/bin/install.sh
           cp airootfs/gui-src/target/release/kestrel-gui /tmp/kestrel_profile/airootfs/usr/local/bin/kestrel-gui
           
-          # 1. FIX: Set permissions correctly
-          sed -i 's/file_permissions=(/file_permissions=(\n  ["\/usr\/local\/bin\/install.sh"]="0:0:755"\n  ["\/usr\/local\/bin\/kestrel-gui"]="0:0:755"/g' /tmp/kestrel_profile/profiledef.sh
+          # FIX: Cleaned up the profiledef permissions injection to be safer and avoid regex panics
+          sed -i '/file_permissions=(/a \  ["/usr/local/bin/install.sh"]="0:0:755"\n  ["/usr/local/bin/kestrel-gui"]="0:0:755"' /tmp/kestrel_profile/profiledef.sh
           
-          # 2. FIX: Configure compression correctly (Injecting level 19 into the profile config)
+          # Force highest ZSTD compression for the live ISO
           sed -i 's/^compressor=.*/compressor="zstd"/' /tmp/kestrel_profile/profiledef.sh
           sed -i 's/^#compression_level=.*/compression_level=19/' /tmp/kestrel_profile/profiledef.sh
 
           cat << 'EOF' > /tmp/kestrel_profile/airootfs/root/.zlogin
           export XDG_RUNTIME_DIR=/run/user/$(id -u)
           
-          # FIX: Unconditionally enforce software cursor to fix vanishing mouse bug
+          # Enforce software cursor to fix vanishing mouse bug in VMs
           export WLR_NO_HARDWARE_CURSORS=1
           
           IS_VM=$(systemd-detect-virt -q && echo 1 || echo 0)
@@ -99,7 +108,6 @@ jobs:
           cp -r airootfs/opt/offline_cache /tmp/kestrel_profile/airootfs/opt/
 
           mkdir -p out/
-          # 3. FIX: Simply removed the -z flag entirely. Compression logic handles it automatically.
           mkarchiso -v -w /tmp/archiso-tmp -o out/ /tmp/kestrel_profile/
 
       - name: Upload ISO Artifact
