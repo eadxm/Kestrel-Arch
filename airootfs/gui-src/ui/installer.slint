@@ -183,6 +183,7 @@ export component InstallerWindow inherits Window {
                             selected(val) => { 
                                 root.selected_mode = val; 
                                 root.selected_de = "Choose your environment";
+                                root.selected_browser = "1. Zen Browser (Recommended)";
                             } 
                             height: 38px; 
                         }
@@ -289,7 +290,9 @@ export component InstallerWindow inherits Window {
                         spacing: 4px;
                         Text { text: "Default Browser:"; font-size: 13px; font-weight: 600; color: #D1D5DB; }
                         ComboBox { 
-                            model: ["1. Zen Browser (Recommended)", "2. LibreWolf", "3. Firefox", "4. Brave"]; 
+                            model: root.selected_mode == "2. Offline (Fast, Local Cache)" ? 
+                                ["1. Zen Browser (Recommended)"] : 
+                                ["1. Zen Browser (Recommended)", "2. LibreWolf", "3. Firefox", "4. Brave"]; 
                             current-value: root.selected_browser; 
                             selected(val) => { root.selected_browser = val; } 
                             height: 38px; 
