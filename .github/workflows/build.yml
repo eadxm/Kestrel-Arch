@@ -14,7 +14,7 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Install Build Dependencies (Including Rust)
         run: |
@@ -38,9 +38,8 @@ jobs:
           pacman -U 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst' 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst' --noconfirm
           echo -e "\n[chaotic-aur]\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> /etc/pacman.conf
 
-          # FIX: Added 'linux' and 'linux-headers' to the offline cache for Legacy CPU/VM fallback
           pacman -Syw --cachedir airootfs/opt/offline_cache --dbpath /tmp/empty_db --noconfirm \
-            base linux-cachyos linux-cachyos-headers linux linux-headers linux-firmware scx-scheds switcheroo-control efibootmgr os-prober ntfs-3g networkmanager iwd bluez bluez-utils blueman \
+            base hunspell hunspell-en_us linux-cachyos linux-cachyos-headers linux linux-headers linux-firmware scx-scheds switcheroo-control efibootmgr os-prober ntfs-3g networkmanager iwd bluez bluez-utils blueman \
             pipewire pipewire-pulse wireplumber brightnessctl flatpak xorg-server sddm sudo zram-generator earlyoom \
             reflector ttf-dejavu ttf-liberation noto-fonts noto-fonts-emoji curl chaotic-keyring chaotic-mirrorlist parted \
             amd-ucode intel-ucode nvidia nvidia-utils nvidia-prime xf86-video-amdgpu intel-media-driver \
@@ -80,7 +79,6 @@ jobs:
           sed -i '/file_permissions=(/a \  ["/usr/local/bin/install.sh"]="0:0:755"\n  ["/usr/local/bin/kestrel-gui"]="0:0:755"' /tmp/kestrel_profile/profiledef.sh
           
           sed -i 's/^compressor=.*/compressor="zstd"/' /tmp/kestrel_profile/profiledef.sh
-          sed -i 's/^#compression_level=.*/compression_level=19/' /tmp/kestrel_profile/profiledef.sh
 
           cat << 'EOF' > /tmp/kestrel_profile/airootfs/root/.zlogin
           export XDG_RUNTIME_DIR=/run/user/$(id -u)
@@ -105,7 +103,7 @@ jobs:
           mkarchiso -v -w /tmp/archiso-tmp -o out/ /tmp/kestrel_profile/
 
       - name: Upload ISO Artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: Kestrel-Arch-ISO
           path: out/*.iso
