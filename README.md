@@ -106,7 +106,7 @@ Kestrel offers a comprehensive library of desktop environments, window managers,
 Our pre-compiled ISO features an **Offline Cache Mode**, allowing you to deploy a full desktop environment even without an active internet connection.
 
 1. **Download:** Navigate to the **[Releases](../../releases)** tab and download the latest `Kestrel-Arch-ISO` artifact.
-2. **Flash:** Write the ISO to a USB drive using [Rufus](https://rufus.ie/) (DD Mode), [BalenaEtcher](https://balena.io/etcher/), or `dd`.
+2. **Flash:** Write the ISO to a USB drive using [Rufus](https://rufus.ie/) (DD Mode), [BalenaEtcher](https://balena.io/etcher/), or [Ventoy](https://www.ventoy.net).
 3. **Deploy:** Boot from the USB. The system auto-launches the Kestrel UI.
 4. **Configure:** Select your target drive, input user credentials, select your environment, and click **Initialize Protocol**.
 5. **Reboot:** Monitor the live terminal output, and click the reboot prompt once the deployment succeeds.
