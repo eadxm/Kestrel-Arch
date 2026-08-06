@@ -10,6 +10,8 @@ export global InstallerLogic {
     callback start_install(string, string, string, string, string, string, string, string, string, string, string);
     callback launch_terminal();
     callback update_system();
+    callback reboot_system();
+    callback poweroff_system();
     
     in property <float> progress: 0.0;
     in property <string> status_text: "Ready to deploy.";
@@ -437,10 +439,30 @@ export component InstallerWindow inherits Window {
                 // --- STEP 99: Complete Screen ---
                 if (root.active_step == 99) : VerticalBox {
                     alignment: center;
-                    spacing: 15px;
+                    spacing: 30px;
                     
-                    Text { text: "DEPLOYMENT SUCCESSFUL"; font-size: 28px; font-weight: 800; color: #A5F3FC; horizontal-alignment: center; letter-spacing: 2px; }
-                    Text { text: "Kestrel Arch has been successfully deployed.\nYou may now reboot your system."; color: #9CA3AF; font-size: 14px; horizontal-alignment: center; }
+                    VerticalBox {
+                        spacing: 15px;
+                        Text { text: "DEPLOYMENT SUCCESSFUL"; font-size: 28px; font-weight: 800; color: #A5F3FC; horizontal-alignment: center; letter-spacing: 2px; }
+                        Text { text: "Kestrel Arch has been successfully deployed.\nYou may now safely reboot your system."; color: #9CA3AF; font-size: 14px; horizontal-alignment: center; }
+                    }
+
+                    HorizontalBox {
+                        alignment: center;
+                        spacing: 20px;
+                        
+                        GlowingButton { 
+                            text: "Power Off"; 
+                            primary: false; 
+                            clicked => { InstallerLogic.poweroff_system(); } 
+                        }
+                        
+                        GlowingButton { 
+                            text: "Reboot Now"; 
+                            primary: true; 
+                            clicked => { InstallerLogic.reboot_system(); } 
+                        }
+                    }
                 }
             }
         }
