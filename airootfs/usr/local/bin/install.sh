@@ -7,7 +7,14 @@ set -eE -o pipefail
 STATUS_FILE="/tmp/kestrel_status"
 
 update_status() {
-    echo "$1" > "$STATUS_FILE"
+    # Strip ANSI color codes to prevent weird boxes in Slint UI
+    local clean_msg=$(echo -e "$1" | sed -r 's/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[mGK]//g')
+    echo "$clean_msg" > "$STATUS_FILE"
+    
+    # If in GUI mode, echo a clean string for Rust to capture via stdout
+    if [ "$NON_INTERACTIVE" = "1" ]; then
+        echo "$clean_msg"
+    fi
 }
 
 error_handler() {
@@ -61,14 +68,11 @@ if [ "$NON_INTERACTIVE" = "1" ]; then
     
     TARGET_DRIVE="${TARGET_DISK}"
     INSTALL_MODE="${INSTALL_MODE:-2}"
-    USER_CHOICE="${PARTITION_STRATEGY:-3}"
-    CONFIRM_NUKE="YES"
-    PROCEED_RESIZE="Y"
+    INSTALL_STRATEGY="${GUI_INSTALL_MODE:-WIPE}"
+    FILESYSTEM="${GUI_FILESYSTEM:-ext4}"
     
     ARCH_ROOT="${GUI_ARCH_ROOT:-}"
     ARCH_EFI="${GUI_ARCH_EFI:-}"
-    C_DRIVE="${GUI_C_DRIVE:-}"
-    ARCH_SIZE_GB="${GUI_ARCH_SIZE_GB:-}"
     
     system_hostname="${GUI_HOSTNAME:-kestrel}"
     username="${GUI_USERNAME:-kestrel}"
@@ -193,166 +197,226 @@ clear
 update_status "PROGRESS: Preparing Storage and Partitioning..."
 if [ ! -d "$ISO_CACHE" ]; then pacman -Sy --noconfirm ntfs-3g parted >/dev/null 2>&1 || true; fi
 
-if [ -z "$USER_CHOICE" ]; then
-    echo "=========================================================="
-    echo "          STEP 2: STORAGE PROVISIONING PATHWAY            "
-    echo "=========================================================="
-    echo " [1] SAFE MULTI-BOOT - Install alongside existing OS."
-    echo " [2] REPLACE LINUX   - Wipe old Linux partition."
-    echo " [3] HARD NUKE       - Wipe the entire drive."
-    echo " [4] WINDOWS RESIZE  - Shrink Windows C: drive."
-    echo " [5] TARGET NUKE     - Wipe Windows C: drive only."
-    echo " [6] MANUAL ADVANCED - cfdisk."
-    echo " [7] DROP TO SHELL"
-    while true; do read -r -p "Enter your choice (1-7): " USER_CHOICE; [[ "$USER_CHOICE" =~ ^[1-7]$ ]] && break; done
-fi
+FILESYSTEM="${FILESYSTEM:-ext4}"
+PROVISIONING_COMPLETE=0
+RESET_STRATEGY=0
 
-echo "STARTING: Formatting partition tables on $TARGET_DRIVE..."
+# Master Loop: Allows us to abort manual mode and restart the menu
+while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
 
-case $USER_CHOICE in
-    1|2|6)
-        if [ "$USER_CHOICE" = "6" ] && [ "$NON_INTERACTIVE" != "1" ]; then cfdisk "$TARGET_DRIVE"; fi
-        lsblk "$TARGET_DRIVE" -o NAME,SIZE,TYPE,FSTYPE
-        
-        if [ -z "$ARCH_ROOT" ]; then
-            while true; do
-                read -r -p "Enter partition for Arch ROOT (e.g., /dev/sda3): " ARCH_ROOT
-                if [ -b "$ARCH_ROOT" ] && [ "$ARCH_ROOT" != "$TARGET_DRIVE" ]; then break; fi
-            done
-        fi
-        
-        if [ -d "/sys/firmware/efi" ]; then
-            if [ -z "$ARCH_EFI" ]; then
+    # Show menu if no strategy is set OR if the user aborted manual mode
+    if [ -z "$INSTALL_STRATEGY" ] || [ "$RESET_STRATEGY" = "1" ]; then
+        echo "=========================================================="
+        echo "          STEP 2: STORAGE PROVISIONING PATHWAY            "
+        echo "=========================================================="
+        echo " [1] WIPE    - Erase entire disk and install fresh."
+        echo " [2] REPLACE - Format a specific target partition."
+        echo " [3] MANUAL  - Launch cfdisk and configure manually."
+        while true; do 
+            read -r -p "Enter your choice (1-3): " MENU_CHOICE
+            case $MENU_CHOICE in
+                1) INSTALL_STRATEGY="WIPE"; RESET_STRATEGY=0; break ;;
+                2) INSTALL_STRATEGY="REPLACE"; RESET_STRATEGY=0; break ;;
+                3) INSTALL_STRATEGY="MANUAL"; RESET_STRATEGY=0; break ;;
+                *) echo "[WARNING] Invalid option." ;;
+            esac
+        done
+    fi
+
+    echo "STARTING: Executing partitioning strategy: $INSTALL_STRATEGY on $TARGET_DRIVE..."
+
+    case $INSTALL_STRATEGY in
+        "WIPE")
+            echo "====== HARD NUKE: WIPE ENTIRE DRIVE ======"
+            if [ "$NON_INTERACTIVE" != "1" ]; then
+                read -r -p "DANGER: Type 'YES' to confirm erasing $TARGET_DRIVE: " CONFIRM_NUKE
+                [[ "${CONFIRM_NUKE^^}" != "YES" ]] && exit 1
+            fi
+            sleep 2
+            
+            wipefs -a "$TARGET_DRIVE" &>/dev/null || true
+            
+            if [ -d "/sys/firmware/efi" ]; then
+                parted -s "$TARGET_DRIVE" mklabel gpt
+                parted -s -a optimal "$TARGET_DRIVE" mkpart primary fat32 1MiB 1025MiB
+                parted -s "$TARGET_DRIVE" set 1 esp on
+                parted -s -a optimal "$TARGET_DRIVE" mkpart primary "$FILESYSTEM" 1025MiB 100%
+                
+                partprobe "$TARGET_DRIVE"; udevadm settle; sleep 2
+                ARCH_EFI="${TARGET_DRIVE}${PART_PREFIX}1"
+                ARCH_ROOT="${TARGET_DRIVE}${PART_PREFIX}2"
+                
+                mkfs.vfat -F 32 "$ARCH_EFI"
+                if [ "$FILESYSTEM" = "btrfs" ]; then mkfs.btrfs -f "$ARCH_ROOT"; else mkfs.ext4 -F "$ARCH_ROOT"; fi
+                
+                mount "$ARCH_ROOT" "$TARGET"
+                mkdir -p "$TARGET/boot/efi"
+                mount -t vfat "$ARCH_EFI" "$TARGET/boot/efi"
+            else
+                parted -s "$TARGET_DRIVE" mklabel msdos
+                parted -s -a optimal "$TARGET_DRIVE" mkpart primary "$FILESYSTEM" 2MiB 100%
+                parted -s "$TARGET_DRIVE" set 1 boot on
+                
+                partprobe "$TARGET_DRIVE"; udevadm settle; sleep 2
+                ARCH_ROOT="${TARGET_DRIVE}${PART_PREFIX}1"
+                
+                if [ "$FILESYSTEM" = "btrfs" ]; then mkfs.btrfs -f "$ARCH_ROOT"; else mkfs.ext4 -F "$ARCH_ROOT"; fi
+                mount "$ARCH_ROOT" "$TARGET"
+                EFI_DIR="/boot"
+            fi
+            GRUB_OS_PROBER="true"
+            PROVISIONING_COMPLETE=1
+            ;;
+            
+        "REPLACE")
+            echo "====== REPLACE TARGET PARTITION ======"
+            if [ -z "$ARCH_ROOT" ]; then
+                lsblk "$TARGET_DRIVE" -o NAME,SIZE,TYPE,FSTYPE
                 while true; do
-                    read -r -p "Enter EFI partition path (e.g., /dev/sda1): " ARCH_EFI
-                    if [ -b "$ARCH_EFI" ] && [ "$ARCH_EFI" != "$TARGET_DRIVE" ]; then break; fi
+                    read -r -p "Enter partition to FORMAT and REPLACE (e.g., /dev/sda2): " ARCH_ROOT
+                    if [ -b "$ARCH_ROOT" ] && [ "$ARCH_ROOT" != "$TARGET_DRIVE" ]; then break; fi
                 done
             fi
-        fi
-        
-        if [ "$USER_CHOICE" = "2" ]; then
-            if [ -z "$CONFIRM_NUKE" ]; then read -r -p "Type 'NUKE' to erase $ARCH_ROOT: " CONFIRM_NUKE; fi
-            [[ "${CONFIRM_NUKE^^}" != "NUKE" ]] && exit 1
-        fi
-
-        if [ "$USER_CHOICE" = "6" ]; then
-            if [ -z "$FORMAT_ROOT" ]; then read -r -p "Format $ARCH_ROOT to ext4? (y/N): " FORMAT_ROOT; fi
-            [[ "$FORMAT_ROOT" =~ ^[Yy]$ ]] && mkfs.ext4 -F "$ARCH_ROOT"
-        else mkfs.ext4 -F "$ARCH_ROOT"; fi
-        mount "$ARCH_ROOT" "$TARGET"
-        
-        if [ -d "/sys/firmware/efi" ]; then
-            mkdir -p "$TARGET/boot/efi"
-            umount "$ARCH_EFI" 2>/dev/null || true
-            if [ "$USER_CHOICE" = "6" ]; then
-                if [ -z "$FORMAT_EFI" ]; then read -r -p "Format $ARCH_EFI to FAT32? (y/N): " FORMAT_EFI; fi
-                [[ "$FORMAT_EFI" =~ ^[Yy]$ ]] && mkfs.vfat -F 32 "$ARCH_EFI"
+            
+            if [ "$NON_INTERACTIVE" != "1" ]; then
+                read -r -p "Type 'NUKE' to erase $ARCH_ROOT: " CONFIRM_NUKE
+                [[ "${CONFIRM_NUKE^^}" != "NUKE" ]] && exit 1
             fi
-            mount -t vfat "$ARCH_EFI" "$TARGET/boot/efi"
-        else mkdir -p "$TARGET/boot"; fi
-        
-        if [ "$USER_CHOICE" = "1" ]; then GRUB_OS_PROBER="false"; elif [ "$USER_CHOICE" = "6" ]; then
-            if [ -z "$MANUAL_PROBER" ]; then read -r -p "Enable OS Prober? (Y/n): " MANUAL_PROBER; fi
-            if [[ "$MANUAL_PROBER" =~ ^[Nn]$ ]]; then GRUB_OS_PROBER="true"; else GRUB_OS_PROBER="false"; fi
-        fi
-        ;;
-    3)
-        echo "====== HARD NUKE: WIPE ENTIRE DRIVE ======"
-        if [ -z "$CONFIRM_NUKE" ]; then read -r -p "DANGER: Type 'YES' to confirm: " CONFIRM_NUKE; fi
-        [[ "${CONFIRM_NUKE^^}" != "YES" ]] && exit 1
-        sleep 2
-        
-        # FIX: Thoroughly wipe filesystem headers and GPT ghosts
-        wipefs -a "$TARGET_DRIVE" &>/dev/null || true
-        
-        if [ -d "/sys/firmware/efi" ]; then
-            parted -s "$TARGET_DRIVE" mklabel gpt
-            parted -s -a optimal "$TARGET_DRIVE" mkpart primary fat32 1MiB 1025MiB
-            parted -s "$TARGET_DRIVE" set 1 esp on
-            parted -s -a optimal "$TARGET_DRIVE" mkpart primary ext4 1025MiB 100%
             
-            partprobe "$TARGET_DRIVE"; udevadm settle; sleep 2
-            ARCH_EFI="${TARGET_DRIVE}${PART_PREFIX}1"
-            ARCH_ROOT="${TARGET_DRIVE}${PART_PREFIX}2"
-            
-            mkfs.vfat -F 32 "$ARCH_EFI"
-            mkfs.ext4 -F "$ARCH_ROOT"
+            if [ "$FILESYSTEM" = "btrfs" ]; then mkfs.btrfs -f "$ARCH_ROOT"; else mkfs.ext4 -F "$ARCH_ROOT"; fi
             mount "$ARCH_ROOT" "$TARGET"
-            mkdir -p "$TARGET/boot/efi"
-            mount -t vfat "$ARCH_EFI" "$TARGET/boot/efi"
-        else
-            parted -s "$TARGET_DRIVE" mklabel msdos
-            # FIX: Start the Root partition at 2MiB to allow GRUB space to embed core.img
-            parted -s -a optimal "$TARGET_DRIVE" mkpart primary ext4 2MiB 100%
-            parted -s "$TARGET_DRIVE" set 1 boot on
             
-            partprobe "$TARGET_DRIVE"; udevadm settle; sleep 2
-            ARCH_ROOT="${TARGET_DRIVE}${PART_PREFIX}1"
+            if [ -d "/sys/firmware/efi" ]; then
+                if [ -z "$ARCH_EFI" ]; then
+                    while true; do
+                        read -r -p "Enter existing EFI partition path (e.g., /dev/sda1): " ARCH_EFI
+                        if [ -b "$ARCH_EFI" ] && [ "$ARCH_EFI" != "$TARGET_DRIVE" ]; then break; fi
+                    done
+                fi
+                mkdir -p "$TARGET/boot/efi"
+                mount -t vfat "$ARCH_EFI" "$TARGET/boot/efi"
+            fi
+            GRUB_OS_PROBER="false"
+            PROVISIONING_COMPLETE=1
+            ;;
+
+        "MANUAL")
+            echo "====== MANUAL PROVISIONING ======"
+            if [ "$NON_INTERACTIVE" != "1" ]; then
+                echo "[INFO] Launching cfdisk for manual partitioning..."
+                echo "----------------------------------------------------------"
+                echo "👉 INSTRUCTIONS: Build your partitions, select 'Write' to save,"
+                echo "   and then select 'Quit'. The installer will automatically resume!"
+                echo "----------------------------------------------------------"
+                sleep 4
+                
+                while true; do
+                    sfdisk -d "$TARGET_DRIVE" > /tmp/kestrel_part_before 2>/dev/null || true
+                    cfdisk "$TARGET_DRIVE" || true
+                    sfdisk -d "$TARGET_DRIVE" > /tmp/kestrel_part_after 2>/dev/null || true
+                    
+                    if cmp -s /tmp/kestrel_part_before /tmp/kestrel_part_after; then
+                        clear
+                        echo "=========================================================="
+                        echo " [WARNING] No changes were written to the drive!"
+                        echo "=========================================================="
+                        echo " Options:"
+                        echo "  [1] I forgot to save (Go back to cfdisk)"
+                        echo "  [2] I want to proceed anyway (Assign Mount Points)"
+                        echo "  [3] Abort and go back to Main Menu (Select WIPE/REPLACE)"
+                        echo "----------------------------------------------------------"
+                        read -r -p "Choice (1-3): " CFDISK_CHOICE
+                        
+                        if [ "$CFDISK_CHOICE" = "1" ]; then
+                            continue
+                        elif [ "$CFDISK_CHOICE" = "3" ]; then
+                            RESET_STRATEGY=1
+                            break # Break the cfdisk loop
+                        else
+                            break # User intentionally made no changes, proceed to formatting
+                        fi
+                    else
+                        break # Changes were detected, break the loop and proceed
+                    fi
+                done
+                
+                # The Escape Hatch: If user selected [3], restart the main outer loop
+                if [ "$RESET_STRATEGY" = "1" ]; then
+                    continue 
+                fi
+                
+                clear
+                echo "====== ASSIGN MOUNT POINTS & FORMATTING ======"
+                lsblk "$TARGET_DRIVE" -o NAME,SIZE,TYPE,FSTYPE
+                echo "----------------------------------------------------------"
+                echo "⚠️  You MUST assign valid mount points to continue."
+                
+                # 1. Strict Assignment and Formatting for ROOT
+                while true; do
+                    read -r -p "Enter partition for Arch ROOT (e.g., /dev/sda2): " ARCH_ROOT
+                    if [ -z "$ARCH_ROOT" ]; then
+                        echo "[ERROR] Cannot be blank. A ROOT partition is mandatory."
+                        continue
+                    fi
+                    if [ -b "$ARCH_ROOT" ]; then
+                        read -r -p "Format $ARCH_ROOT? (y/N): " FORMAT_ROOT
+                        if [[ "$FORMAT_ROOT" =~ ^[Yy]$ ]]; then
+                            read -r -p "Select Filesystem (ext4/btrfs) [default: ext4]: " ROOT_FS
+                            ROOT_FS=${ROOT_FS:-ext4}
+                            if [ "$ROOT_FS" = "btrfs" ]; then mkfs.btrfs -f "$ARCH_ROOT"; else mkfs.ext4 -F "$ARCH_ROOT"; fi
+                        fi
+                        # Verify the mount actually works before breaking the loop
+                        if mount "$ARCH_ROOT" "$TARGET"; then
+                            break
+                        else
+                            echo "[ERROR] Failed to mount $ARCH_ROOT. Please try again."
+                        fi
+                    else 
+                        echo "[ERROR] Invalid partition path."
+                    fi
+                done
+                
+                # 2. Strict Assignment and Formatting for EFI (If UEFI System)
+                if [ -d "/sys/firmware/efi" ]; then
+                    while true; do
+                        read -r -p "Enter EFI partition path (e.g., /dev/sda1): " ARCH_EFI
+                        if [ -z "$ARCH_EFI" ]; then
+                            echo "[ERROR] Cannot be blank. UEFI systems require an EFI partition."
+                            continue
+                        fi
+                        if [ -b "$ARCH_EFI" ]; then
+                            read -r -p "Format $ARCH_EFI to FAT32? (y/N): " FORMAT_EFI
+                            if [[ "$FORMAT_EFI" =~ ^[Yy]$ ]]; then
+                                mkfs.vfat -F 32 "$ARCH_EFI"
+                            fi
+                            mkdir -p "$TARGET/boot/efi"
+                            # Verify EFI mount works
+                            if mount -t vfat "$ARCH_EFI" "$TARGET/boot/efi"; then
+                                break
+                            else
+                                echo "[ERROR] Failed to mount EFI partition. Please try again."
+                            fi
+                        else 
+                            echo "[ERROR] Invalid partition path."
+                        fi
+                    done
+                else
+                    mkdir -p "$TARGET/boot"
+                fi
+                
+                # 3. Ask about OS Prober (for dual boot detection)
+                read -r -p "Enable OS Prober to detect other Operating Systems? (Y/n): " MANUAL_PROBER
+                if [[ "$MANUAL_PROBER" =~ ^[Nn]$ ]]; then GRUB_OS_PROBER="false"; else GRUB_OS_PROBER="true"; fi
+                
+            else
+                echo "[INFO] GUI Manual mode active. Proceeding with pre-configured mounts."
+                GRUB_OS_PROBER="true"
+            fi
             
-            mkfs.ext4 -F "$ARCH_ROOT"
-            mount "$ARCH_ROOT" "$TARGET"
-            EFI_DIR="/boot"
-        fi
-        GRUB_OS_PROBER="true"
-        ;;
-    4)
-        echo "====== AUTOMATED WINDOWS RESIZE & DUAL BOOT ======"
-        if [ -z "$PROCEED_RESIZE" ]; then read -r -p "Proceed with resize? (y/N): " PROCEED_RESIZE; fi
-        [[ ! "$PROCEED_RESIZE" =~ ^[Yy]$ ]] && exit 1
-        lsblk "$TARGET_DRIVE" -o NAME,SIZE,TYPE,FSTYPE
-        
-        if [ -z "$C_DRIVE" ]; then
-            while true; do
-                read -r -p "Type Windows C: partition (e.g., /dev/sda3): " C_DRIVE
-                if [ -b "$C_DRIVE" ] && [ "$C_DRIVE" != "$TARGET_DRIVE" ]; then break; fi
-            done
-        fi
-        
-        if [ -z "$ARCH_SIZE_GB" ]; then read -r -p "Space (in GB) to TAKE from Windows: " ARCH_SIZE_GB; fi
-        
-        ntfsfix "$C_DRIVE" || true
-        C_PART_NUM=$(echo "$C_DRIVE" | grep -o '[0-9]\+$')
-        ntfsresize -f -s -${ARCH_SIZE_GB}G "$C_DRIVE"
-        parted -s -a opt "$TARGET_DRIVE" resizepart "$C_PART_NUM" -${ARCH_SIZE_GB}G
-        parted -s -a opt "$TARGET_DRIVE" mkpart primary ext4 -${ARCH_SIZE_GB}G 100%
-        partprobe "$TARGET_DRIVE"; udevadm settle; sleep 3
-        ARCH_ROOT=$(lsblk -ln -p -o NAME "$TARGET_DRIVE" | grep -E "^${TARGET_DRIVE}${PART_PREFIX}[0-9]+" | sort -V | tail -n 1)
-        mkfs.ext4 -F "$ARCH_ROOT"
-        mount "$ARCH_ROOT" "$TARGET"
-        if [ -d "/sys/firmware/efi" ]; then
-            WIN_EFI=$(lsblk -ln -p -o NAME,FSTYPE "$TARGET_DRIVE" | grep vfat | head -n 1 | awk '{print $1}')
-            if [ -z "$WIN_EFI" ]; then read -r -p "Enter Windows EFI path manually: " WIN_EFI; fi
-            mkdir -p "$TARGET/boot/efi"
-            fsck.fat -a "$WIN_EFI" || true
-            mount -t vfat "$WIN_EFI" "$TARGET/boot/efi"
-            ARCH_EFI="$WIN_EFI"
-        fi
-        GRUB_OS_PROBER="false" 
-        ;;
-    5)
-        echo "====== TARGET NUKE: ERASE SPECIFIC PARTITION ======"
-        lsblk "$TARGET_DRIVE" -o NAME,SIZE,TYPE,FSTYPE
-        if [ -z "$C_DRIVE" ]; then
-            while true; do
-                read -r -p "Type target Windows partition to WIPE: " C_DRIVE
-                if [ -b "$C_DRIVE" ] && [ "$C_DRIVE" != "$TARGET_DRIVE" ]; then break; fi
-            done
-        fi
-        if [ -z "$CONFIRM_NUKE" ]; then read -r -p "Type 'NUKE' to erase $C_DRIVE: " CONFIRM_NUKE; fi
-        [[ "${CONFIRM_NUKE^^}" != "NUKE" ]] && exit 1
-        mkfs.ext4 -F "$C_DRIVE"; mount "$C_DRIVE" "$TARGET"
-        if [ -d "/sys/firmware/efi" ]; then
-            WIN_EFI=$(lsblk -ln -p -o NAME,FSTYPE "$TARGET_DRIVE" | grep vfat | head -n 1 | awk '{print $1}')
-            if [ -z "$WIN_EFI" ]; then read -r -p "Enter Windows EFI path manually: " WIN_EFI; fi
-            mkdir -p "$TARGET/boot/efi"
-            fsck.fat -a "$WIN_EFI" || true
-            mount -t vfat "$WIN_EFI" "$TARGET/boot/efi"
-            ARCH_EFI="$WIN_EFI"
-        fi
-        GRUB_OS_PROBER="false"
-        ;;
-    7) /bin/zsh; exit 0 ;;
-esac
+            PROVISIONING_COMPLETE=1
+            ;;
+    esac
+done
 
 # =====================================================================
 #              ACCOUNT CREATION
@@ -456,24 +520,25 @@ if [ -z "$DE_CHOICE" ]; then
     fi
 fi
 
+# FIX: Replaced 'nitrogen' with 'feh' to prevent dead package crashing
 case $DE_CHOICE in
     1) CORE_PKGS="$CORE_PKGS hyprland waybar kitty rofi-wayland xdg-desktop-portal-hyprland polkit-kde-agent thunar gvfs sddm" ;;
     2) CORE_PKGS="$CORE_PKGS plasma-desktop plasma-workspace plasma-nm power-profiles-daemon kscreen konsole dolphin ark kate spectacle discover packagekit-qt6 sddm-kcm sddm" ;;
     3) CORE_PKGS="$CORE_PKGS xfce4 xfce4-terminal xfce4-goodies sddm" ;;
     4) CORE_PKGS="$CORE_PKGS gnome gnome-tweaks gdm"; DISPLAY_MANAGER="gdm" ;;
     5) CORE_PKGS="$CORE_PKGS sway swaybg swaylock swayidle waybar kitty rofi-wayland xdg-desktop-portal-wlr polkit-kde-agent thunar gvfs sddm" ;;
-    6) CORE_PKGS="$CORE_PKGS i3-wm i3status i3lock dmenu kitty picom nitrogen polkit-gnome thunar gvfs sddm" ;;
+    6) CORE_PKGS="$CORE_PKGS i3-wm i3status i3lock dmenu kitty picom feh polkit-gnome thunar gvfs sddm" ;;
     7) CORE_PKGS="$CORE_PKGS cinnamon nemo-fileroller gnome-terminal sddm" ;;
     8) CORE_PKGS="$CORE_PKGS niri waybar kitty rofi-wayland xdg-desktop-portal-gnome polkit-kde-agent thunar gvfs sddm" ;;
     9) CORE_PKGS="$CORE_PKGS qtile kitty rofi-wayland xdg-desktop-portal-wlr polkit-kde-agent thunar gvfs sddm" ;;
     10) CORE_PKGS="$CORE_PKGS wayfire wayfire-plugins-extra kitty rofi-wayland xdg-desktop-portal-wlr polkit-kde-agent thunar gvfs sddm" ;;
-    11) CORE_PKGS="$CORE_PKGS bspwm sxhkd kitty dmenu picom nitrogen polkit-gnome thunar gvfs sddm" ;;
+    11) CORE_PKGS="$CORE_PKGS bspwm sxhkd kitty dmenu picom feh polkit-gnome thunar gvfs sddm" ;;
     12) CORE_PKGS="$CORE_PKGS budgie-desktop sddm" ;;
     13) CORE_PKGS="$CORE_PKGS cosmic-session sddm" ;;
     14) CORE_PKGS="$CORE_PKGS lxde-common lxsession openbox sddm" ;;
     15) CORE_PKGS="$CORE_PKGS lxqt lxqt-session sddm" ;;
     16) CORE_PKGS="$CORE_PKGS mate mate-extra sddm" ;;
-    17) CORE_PKGS="$CORE_PKGS openbox obconf tint2 kitty dmenu nitrogen sddm" ;;
+    17) CORE_PKGS="$CORE_PKGS openbox obconf tint2 kitty dmenu feh sddm" ;;
 esac
 
 # =====================================================================
@@ -506,6 +571,20 @@ case $BOOT_CHOICE in
 esac
 
 # =====================================================================
+#              THE FAILSAFE PACKAGE INJECTOR
+# =====================================================================
+update_status "PROGRESS: Verifying package integrity against Arch mirrors..."
+
+VALIDATED_PACKAGES=()
+for pkg in $CORE_PKGS; do
+    if pacman -Si "$pkg" &> /dev/null || pacman -Sg "$pkg" &> /dev/null; then
+        VALIDATED_PACKAGES+=("$pkg")
+    else
+        echo "[WARNING] Package '$pkg' is missing or renamed. Skipping to prevent crash."
+    fi
+done
+
+# =====================================================================
 #              INSTALLATION EXECUTION
 # =====================================================================
 clear
@@ -526,7 +605,8 @@ Server = file://$ISO_CACHE/
 EOF
     mkdir -p "$TARGET/var/cache/pacman/pkg"
     cp -n "$ISO_CACHE"/* "$TARGET/var/cache/pacman/pkg/" 2>/dev/null || true
-    pacstrap -C /tmp/offline-pacman.conf -K "$TARGET" --noconfirm $CORE_PKGS
+    # FIX: Using VALIDATED_PACKAGES array
+    pacstrap -C /tmp/offline-pacman.conf -K "$TARGET" --noconfirm "${VALIDATED_PACKAGES[@]}"
     cp /etc/pacman.conf "$TARGET/etc/pacman.conf"
 else
     timedatectl set-ntp true
@@ -546,7 +626,8 @@ else
     DOWNLOAD_SUCCESS=0
     while [ "$DOWNLOAD_SUCCESS" -eq 0 ]; do
         rm -f "$TARGET/var/lib/pacman/db.lck" 2>/dev/null || true
-        if pacstrap -K "$TARGET" --noconfirm $CORE_PKGS; then DOWNLOAD_SUCCESS=1; else 
+        # FIX: Using VALIDATED_PACKAGES array
+        if pacstrap -K "$TARGET" --noconfirm "${VALIDATED_PACKAGES[@]}"; then DOWNLOAD_SUCCESS=1; else 
             if [ "$NON_INTERACTIVE" = "1" ]; then exit 1; else
                 read -r -p "Install failed! Retry? (1=Yes, 2=Reboot): " FAIL_CHOICE; [ "$FAIL_CHOICE" = "2" ] && { umount -R "$TARGET"; reboot; }
             fi
