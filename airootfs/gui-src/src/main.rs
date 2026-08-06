@@ -70,6 +70,23 @@ fn main() -> Result<(), slint::PlatformError> {
     });
 
     // ==========================================
+    // SYSTEM LOGIC: Power Management (The Escape Hatch)
+    // ==========================================
+    ui.global::<InstallerLogic>().on_reboot_system(move || {
+        Command::new("systemctl")
+            .arg("reboot")
+            .spawn()
+            .expect("Failed to execute reboot command");
+    });
+
+    ui.global::<InstallerLogic>().on_poweroff_system(move || {
+        Command::new("systemctl")
+            .arg("poweroff")
+            .spawn()
+            .expect("Failed to execute poweroff command");
+    });
+
+    // ==========================================
     // INSTALLER LOGIC: Execute Bash Backend
     // ==========================================
     let ui_handle = ui.as_weak();
