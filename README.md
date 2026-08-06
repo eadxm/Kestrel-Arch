@@ -1,6 +1,6 @@
 #  Kestrel Arch Deployment Engine
 
-[![Build Status](https://img.shields.io/github/actions/workflow/status/yourusername/kestrel-arch/build.yml?branch=main&style=flat-square)](https://github.com/yourusername/kestrel-arch/actions)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/eadxm/Kestrel-Arch/build.yml?branch=main&style=flat-square)](https://github.com/eadxm/Kestrel-Arch/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/Rust-1.70+-orange.svg?style=flat-square&logo=rust)](https://www.rust-lang.org/)
 [![Arch Linux](https://img.shields.io/badge/Arch_Linux-Rolling-1793d1.svg?style=flat-square&logo=arch-linux)](https://archlinux.org/)
