@@ -35,13 +35,13 @@ Kestrel Arch is an automated, hyper-optimized Arch Linux deployment system. It t
 
 ## 🖥️ System Requirements
 
-| Requirement | Minimum | Recommended (For VMs) |
+| Requirement | Minimum | Recommended |
 | :--- | :--- | :--- |
 | **Architecture** | x86_64 | x86_64 |
-| **Firmware** | UEFI | UEFI |
+| **Firmware** | BIOS | UEFI |
 | **RAM** | 2 GB | 4 GB |
-| **Storage** | 20 GB | 16 GB |
-| **Network** | Optional (only if using Kestrel-Arch ISO) | Optional (only if using Kestrel-Arch ISO) |
+| **Storage** | 16 GB | 20 GB |
+| **Network** | No | Yes |
 
 ---
 
