@@ -37,9 +37,11 @@ if [ "$UI_CHOICE" = "1" ]; then
     # Sync Arch keys to prevent signature errors on vanilla ISOs
     pacman-key --init >/dev/null 2>&1 || true
     pacman-key --populate archlinux >/dev/null 2>&1 || true
-    
+
+    # Perform a full system sync/upgrade first to prevent partial upgrade conflicts
+    pacman -Syu --noconfirm
     # Install necessary GUI components for a vanilla Arch ISO
-    pacman -Sy --noconfirm cage wayland ttf-dejavu gparted polkit ttf-liberation noto-fonts pciutils
+    pacman -S --noconfirm cage wayland ttf-dejavu gparted polkit ttf-liberation noto-fonts pciutils
     
     echo "=> Fetching Kestrel GUI Binary..."
     curl -sL "https://github.com/${GITHUB_REPO}/releases/latest/download/kestrel-gui" -o /usr/local/bin/kestrel-gui
