@@ -170,6 +170,14 @@ cargo run --release
 
 ---
 
-## 📄 License
+## 📄 Licensing
 
-This project is open-source and licensed under the [MIT License](LICENSE). "Maximum Installation Transparency."
+Kestrel Arch is dual-licensed:
+
+1. **Open-Source / Non-Commercial [AGPL v3](LICENSE):** 
+   This project is free software licensed under the **GNU AGPL v3**. You can freely use, modify, and distribute it under the terms of the AGPL, provided any derivative works are also open-sourced under the same license.
+2. **Commercial / Proprietary Licensing:** 
+   If you wish to use Kestrel Arch, or any modified version of it, in a commercial product, enterprise environment, or closed-source application without complying with the copyleft terms of the AGPL, you **must** purchase a Commercial License. 
+   
+   *For commercial licensing inquiries, contact:* **eadxmz@gmail.com**.
+
