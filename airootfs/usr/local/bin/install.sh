@@ -1,6 +1,10 @@
 #!/bin/bash
 set -eE -o pipefail
 
+# CRITICAL GUI FIX: Merge standard error into standard output. 
+# This guarantees that the Slint GUI captures the EXACT raw errors from failing commands.
+exec 2>&1
+
 # =====================================================================
 #              FAIL-SAFE TELEMETRY AND ERROR TRAPPING ENGINE
 # =====================================================================
@@ -21,7 +25,7 @@ error_handler() {
     local exit_code=$1
     local line_number=$2
     
-    update_status "ERROR: Failed at line $line_number (Code: $exit_code). Check installation logs."
+    update_status "ERROR: Deployment failed at line $line_number. Check log above for raw error."
     
     echo -e "\n=========================================================="
     echo "         CRITICAL FAULT DETECTED BY KESTREL         "
@@ -253,6 +257,9 @@ while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
                 ARCH_EFI="${TARGET_DRIVE}${PART_PREFIX}1"
                 ARCH_ROOT="${TARGET_DRIVE}${PART_PREFIX}2"
                 
+                wipefs -a "$ARCH_EFI" &>/dev/null || true
+                wipefs -a "$ARCH_ROOT" &>/dev/null || true
+                
                 echo "[INFO] Formatting $ARCH_EFI to FAT32..."
                 mkfs.vfat -F 32 "$ARCH_EFI"
                 echo "[INFO] Formatting $ARCH_ROOT to $FILESYSTEM..."
@@ -269,6 +276,8 @@ while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
                 partprobe "$TARGET_DRIVE"; udevadm settle; sleep 2
                 ARCH_ROOT="${TARGET_DRIVE}${PART_PREFIX}1"
                 
+                wipefs -a "$ARCH_ROOT" &>/dev/null || true
+                
                 echo "[INFO] Formatting $ARCH_ROOT to $FILESYSTEM..."
                 if [ "$FILESYSTEM" = "btrfs" ]; then mkfs.btrfs -f "$ARCH_ROOT"; else mkfs.ext4 -F "$ARCH_ROOT"; fi
                 mount "$ARCH_ROOT" "$TARGET"
@@ -281,7 +290,6 @@ while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
         "REPLACE")
             echo "====== REPLACE TARGET PARTITION ======"
             
-            # --- DUAL-MODE CATCH: CLI vs GUI ---
             if [ "$NON_INTERACTIVE" != "1" ]; then
                 if [ -z "$ARCH_ROOT" ]; then
                     lsblk "$TARGET_DRIVE" -o NAME,SIZE,TYPE,FSTYPE
@@ -297,6 +305,8 @@ while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
                 echo "[INFO] GUI Mode active. Targeting $ARCH_ROOT for replacement."
             fi
             
+            wipefs -a "$ARCH_ROOT" &>/dev/null || true
+            
             echo "[INFO] Formatting $ARCH_ROOT to $FILESYSTEM..."
             if [ "$FILESYSTEM" = "btrfs" ]; then mkfs.btrfs -f "$ARCH_ROOT"; else mkfs.ext4 -F "$ARCH_ROOT"; fi
             mount "$ARCH_ROOT" "$TARGET"
@@ -310,7 +320,6 @@ while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
                         done
                     fi
                 else
-                    # In Replace mode, GUI should pass the EFI partition if known, or we guess it.
                     ARCH_EFI="${GUI_EFI_PART:-${TARGET_DRIVE}${PART_PREFIX}1}"
                 fi
                 mkdir -p "$TARGET/boot/efi"
@@ -323,7 +332,6 @@ while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
         "MANUAL")
             echo "====== ADVANCED PROVISIONING ======"
             
-            # --- DUAL-MODE CATCH: CLI vs GUI ---
             if [ "$NON_INTERACTIVE" != "1" ]; then
                 echo "[INFO] Launching cfdisk for manual partitioning..."
                 echo "----------------------------------------------------------"
@@ -369,7 +377,6 @@ while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
                 lsblk "$TARGET_DRIVE" -o NAME,SIZE,TYPE,FSTYPE
                 echo "----------------------------------------------------------"
                 
-                # Strict Root Mapping
                 while true; do
                     read -r -p "Enter partition for Arch ROOT (e.g., /dev/sda2): " ARCH_ROOT
                     if [ -z "$ARCH_ROOT" ]; then continue; fi
@@ -378,20 +385,23 @@ while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
                         if [[ "$FORMAT_ROOT" =~ ^[Yy]$ ]]; then
                             read -r -p "Select Filesystem (ext4/btrfs) [default: ext4]: " ROOT_FS
                             ROOT_FS=${ROOT_FS:-ext4}
+                            wipefs -a "$ARCH_ROOT" &>/dev/null || true
                             if [ "$ROOT_FS" = "btrfs" ]; then mkfs.btrfs -f "$ARCH_ROOT"; else mkfs.ext4 -F "$ARCH_ROOT"; fi
                         fi
                         if mount "$ARCH_ROOT" "$TARGET"; then break; else echo "[ERROR] Mount failed."; fi
                     else echo "[ERROR] Invalid partition path."; fi
                 done
                 
-                # Strict EFI Mapping
                 if [ -d "/sys/firmware/efi" ]; then
                     while true; do
                         read -r -p "Enter EFI partition path (e.g., /dev/sda1): " ARCH_EFI
                         if [ -z "$ARCH_EFI" ]; then continue; fi
                         if [ -b "$ARCH_EFI" ]; then
                             read -r -p "Format $ARCH_EFI to FAT32? (y/N): " FORMAT_EFI
-                            if [[ "$FORMAT_EFI" =~ ^[Yy]$ ]]; then mkfs.vfat -F 32 "$ARCH_EFI"; fi
+                            if [[ "$FORMAT_EFI" =~ ^[Yy]$ ]]; then 
+                                wipefs -a "$ARCH_EFI" &>/dev/null || true
+                                mkfs.vfat -F 32 "$ARCH_EFI"
+                            fi
                             mkdir -p "$TARGET/boot/efi"
                             if mount -t vfat "$ARCH_EFI" "$TARGET/boot/efi"; then break; else echo "[ERROR] Mount failed."; fi
                         else echo "[ERROR] Invalid partition path."; fi
@@ -404,11 +414,10 @@ while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
                 if [[ "$MANUAL_PROBER" =~ ^[Nn]$ ]]; then GRUB_OS_PROBER="false"; else GRUB_OS_PROBER="true"; fi
 
             else
-                # GUI MODE: Slint has already mapped the partitions visually!
                 echo "[INFO] GUI Advanced Mode active. Applying pre-configured mounts..."
                 
-                # 1. Format and Mount ROOT
                 if [ -b "$GUI_ROOT_PART" ]; then
+                    wipefs -a "$GUI_ROOT_PART" &>/dev/null || true
                     echo "[INFO] Formatting $GUI_ROOT_PART to $FILESYSTEM..."
                     if [ "$FILESYSTEM" = "btrfs" ]; then mkfs.btrfs -f "$GUI_ROOT_PART"; else mkfs.ext4 -F "$GUI_ROOT_PART"; fi
                     mount "$GUI_ROOT_PART" "$TARGET"
@@ -417,9 +426,9 @@ while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
                     exit 1
                 fi
                 
-                # 2. Format and Mount EFI (If UEFI System)
                 if [ -d "/sys/firmware/efi" ]; then
                     if [ -n "$GUI_EFI_PART" ] && [ -b "$GUI_EFI_PART" ]; then
+                        wipefs -a "$GUI_EFI_PART" &>/dev/null || true
                         echo "[INFO] Formatting $GUI_EFI_PART to FAT32..."
                         mkfs.vfat -F 32 "$GUI_EFI_PART"
                         mkdir -p "$TARGET/boot/efi"
@@ -588,16 +597,48 @@ case $BOOT_CHOICE in
 esac
 
 # =====================================================================
-#              THE FAILSAFE PACKAGE INJECTOR
+#              REPOSITORY INITIALIZATION & FAILSAFE INJECTOR
 # =====================================================================
+update_status "PROGRESS: Initializing package databases..."
+
+if [ "$INSTALL_MODE" = "1" ]; then
+    echo "[INFO] Syncing Arch & Chaotic-AUR package databases..."
+    timedatectl set-ntp true 2>/dev/null || true
+    
+    if command -v reflector &> /dev/null; then
+        reflector --latest 10 --sort rate --save /etc/pacman.d/mirrorlist &>/dev/null || echo 'Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch' > /etc/pacman.d/mirrorlist
+    else 
+        echo 'Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch' > /etc/pacman.d/mirrorlist
+    fi
+
+    pacman-key --init >/dev/null 2>&1 || true
+    pacman-key --populate archlinux >/dev/null 2>&1 || true
+    pacman-key --recv-key 3056513887B78AEB --keyserver hkps://keyserver.ubuntu.com >/dev/null 2>&1 || true
+    pacman-key --lsign-key 3056513887B78AEB >/dev/null 2>&1 || true
+    pacman -U 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst' 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst' --noconfirm >/dev/null 2>&1 || true
+
+    if ! grep -q "chaotic-aur" /etc/pacman.conf; then
+        echo -e "\n[chaotic-aur]\nSigLevel = Optional TrustAll\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> /etc/pacman.conf
+    fi
+
+    # SYNC HOST PACMAN SO PACMAN -SI WORKS FOR ALL PACKAGES
+    pacman -Sy --noconfirm >/dev/null 2>&1 || true
+fi
+
 update_status "PROGRESS: Verifying package integrity against Arch mirrors..."
 
 VALIDATED_PACKAGES=()
 for pkg in $CORE_PKGS; do
-    if pacman -Si "$pkg" &> /dev/null || pacman -Sg "$pkg" &> /dev/null; then
+    if [ "$INSTALL_MODE" = "2" ]; then
+        # Offline mode: Trust curated package cache
         VALIDATED_PACKAGES+=("$pkg")
     else
-        echo "[WARNING] Package '$pkg' is missing or renamed. Skipping to prevent crash."
+        # Online mode: Verify against synced pacman databases
+        if pacman -Si "$pkg" &> /dev/null || pacman -Sg "$pkg" &> /dev/null; then
+            VALIDATED_PACKAGES+=("$pkg")
+        else
+            echo "[WARNING] Package '$pkg' is missing or renamed. Skipping optional package."
+        fi
     fi
 done
 
@@ -623,31 +664,16 @@ EOF
     mkdir -p "$TARGET/var/cache/pacman/pkg"
     cp -n "$ISO_CACHE"/* "$TARGET/var/cache/pacman/pkg/" 2>/dev/null || true
     
-    # CRITICAL FIX: Explicitly showing output for GUI console tracking
     echo "[INFO] Executing Offline Pacstrap Phase..."
     pacstrap -C /tmp/offline-pacman.conf -K "$TARGET" --noconfirm "${VALIDATED_PACKAGES[@]}"
     
     cp /etc/pacman.conf "$TARGET/etc/pacman.conf"
 else
-    timedatectl set-ntp true
-    if command -v reflector &> /dev/null; then
-        reflector --latest 10 --sort rate --save /etc/pacman.d/mirrorlist &>/dev/null || echo 'Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch' > /etc/pacman.d/mirrorlist
-    else echo 'Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch' > /etc/pacman.d/mirrorlist; fi
-    
-    pacman-key --init >/dev/null 2>&1 || true
-    pacman-key --populate archlinux >/dev/null 2>&1 || true
-    pacman-key --recv-key 3056513887B78AEB --keyserver hkps://keyserver.ubuntu.com >/dev/null 2>&1
-    pacman-key --lsign-key 3056513887B78AEB >/dev/null 2>&1
-    pacman -U 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst' 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst' --noconfirm >/dev/null 2>&1
-    
-    echo -e "\n[chaotic-aur]\nSigLevel = Optional TrustAll\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> /etc/pacman.conf
-    
     trap - ERR 
     DOWNLOAD_SUCCESS=0
     while [ "$DOWNLOAD_SUCCESS" -eq 0 ]; do
         rm -f "$TARGET/var/lib/pacman/db.lck" 2>/dev/null || true
         
-        # CRITICAL FIX: Ensure stdout isn't piped to dev/null so Slint logs it correctly
         echo "[INFO] Executing Online Pacstrap Phase..."
         if pacstrap -K "$TARGET" --noconfirm "${VALIDATED_PACKAGES[@]}"; then 
             DOWNLOAD_SUCCESS=1; 
@@ -661,7 +687,9 @@ else
 fi
 
 mkdir -p "$TARGET/etc/pacman.d"
-echo -e "\n[chaotic-aur]\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> "$TARGET/etc/pacman.conf"
+if ! grep -q "chaotic-aur" "$TARGET/etc/pacman.conf"; then
+    echo -e "\n[chaotic-aur]\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> "$TARGET/etc/pacman.conf"
+fi
 genfstab -U "$TARGET" >> "$TARGET/etc/fstab"
 
 # =====================================================================
