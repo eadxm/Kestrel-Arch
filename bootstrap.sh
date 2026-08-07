@@ -41,7 +41,7 @@ if [ "$UI_CHOICE" = "1" ]; then
     # Perform a full system sync/upgrade first to prevent partial upgrade conflicts
     pacman -Sy --noconfirm
     # Install necessary GUI components for a vanilla Arch ISO
-    pacman -S --noconfirm cage wayland ttf-dejavu gparted polkit ttf-liberation noto-fonts pciutils
+    pacman -S --noconfirm --overwrite "*" cage wayland ttf-dejavu gparted polkit ttf-liberation noto-fonts pciutils
     
     echo "=> Fetching Kestrel GUI Binary..."
     curl -sL "https://github.com/${GITHUB_REPO}/releases/latest/download/kestrel-gui" -o /usr/local/bin/kestrel-gui
