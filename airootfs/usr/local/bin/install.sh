@@ -795,16 +795,27 @@ case $BOOT_CHOICE in
         ;;
     2)
         # systemd-boot
-        arch-chroot "$TARGET" bootctl install
-        echo -e "default arch.conf\ntimeout 5" > "$TARGET/boot/loader/loader.conf"
+        # 1. Tell bootctl explicitly where the FAT32 partition is
+        arch-chroot "$TARGET" bootctl --esp-path=/boot/efi install
         
+        # 2. Write configs to the FAT32 ESP, NOT the ext4 root
+        echo -e "default arch.conf\ntimeout 5" > "$TARGET/boot/efi/loader/loader.conf"
+        
+        # 3. CRITICAL: systemd-boot cannot read ext4/btrfs. We MUST copy the kernel to the ESP.
+        echo "[INFO] Copying kernels to EFI partition for systemd-boot compatibility..."
+        cp "$TARGET/boot/$VMLINUZ" "$TARGET/boot/efi/"
+        cp "$TARGET/boot/$INITRAMFS" "$TARGET/boot/efi/"
+        [ -n "$UCODE_IMG" ] && cp "$TARGET/boot/$UCODE_IMG" "$TARGET/boot/efi/"
+        
+        # 4. Write the boot entry pointing to the kernels on the ESP
+        mkdir -p "$TARGET/boot/efi/loader/entries"
         {
             echo "title Kestrel Arch"
             echo "linux /$VMLINUZ"
             [ -n "$UCODE_IMG" ] && echo "initrd /${UCODE_IMG}"
             echo "initrd /$INITRAMFS"
             echo "options root=UUID=${ROOT_UUID} rw nowatchdog zswap.enabled=0 quiet splash mitigations=off${NVIDIA_CMDLINE}"
-        } > "$TARGET/boot/loader/entries/arch.conf"
+        } > "$TARGET/boot/efi/loader/entries/arch.conf"
         ;;
     3)
         # rEFInd
