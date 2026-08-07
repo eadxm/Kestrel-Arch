@@ -1,0 +1,46 @@
+name: Compile and Release Kestrel GUI
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  release-binary:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust Stable & Build Dependencies
+        run: |
+          rustup default stable
+          sudo apt-get update
+          sudo apt-get install -y cmake pkg-config libfontconfig1-dev libx11-dev libxkbcommon-dev libwayland-dev
+
+      - name: Build Kestrel GUI (Release Mode)
+        run: |
+          cd airootfs/gui-src
+          cargo build --release
+
+      - name: Prepare Release Asset
+        run: |
+          mkdir -p /tmp/release_asset
+          cp airootfs/gui-src/target/release/kestrel-gui /tmp/release_asset/kestrel-gui
+          chmod +x /tmp/release_asset/kestrel-gui
+
+      - name: Publish to GitHub Releases
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: latest
+          name: "Kestrel GUI - Latest Build"
+          body: "Automated build of the Kestrel Arch Slint GUI engine."
+          files: /tmp/release_asset/kestrel-gui
+          prerelease: false
+          overwrite: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
