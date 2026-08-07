@@ -53,7 +53,6 @@ fn main() -> Result<(), slint::PlatformError> {
         thread::spawn(move || {
             let is_online = mode_str.contains("Online");
             
-            // If online, check if internet connection is already active (Ethernet/Connected)
             let mut needs_wifi = false;
             if is_online {
                 let status = Command::new("ping")
@@ -72,10 +71,8 @@ fn main() -> Result<(), slint::PlatformError> {
             slint::invoke_from_event_loop(move || {
                 if let Some(ui) = ui_handle.upgrade() {
                     if needs_wifi {
-                        // Jump to dedicated Wi-Fi Network list window
                         ui.set_active_step(2);
                     } else {
-                        // Skip network setup and jump to Target Drive Selection
                         ui.set_active_step(3);
                     }
                 }
@@ -90,7 +87,6 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.global::<InstallerLogic>().on_rescan_wifi(move || {
         let ui_handle = ui_handle_wifi.clone();
         thread::spawn(move || {
-            // Find active wireless interface
             let iface_output = Command::new("sh")
                 .arg("-c")
                 .arg("iw dev | awk '$1==\"Interface\"{print $2}' | head -n 1")
@@ -163,7 +159,6 @@ fn main() -> Result<(), slint::PlatformError> {
 
             slint::invoke_from_event_loop(move || {
                 if let Some(ui) = ui_handle.upgrade() {
-                    // Proceed to Target Drive Selection after attempting connection
                     ui.set_active_step(3);
                 }
             }).unwrap();
@@ -195,6 +190,7 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.global::<InstallerLogic>().on_start_install(move |
         target_disk, install_mode, part_strategy, 
         filesystem, replace_path,
+        gui_root_part, gui_efi_part, 
         hostname, username, password, root_password, 
         browser, perf, selected_de, selected_boot
     | {
@@ -206,6 +202,8 @@ fn main() -> Result<(), slint::PlatformError> {
         
         let fs_str = filesystem.as_str().to_string();
         let replace_str = replace_path.as_str().to_string();
+        let root_part_str = gui_root_part.as_str().to_string(); 
+        let efi_part_str = gui_efi_part.as_str().to_string();   
         
         let host_str = hostname.as_str().to_string();
         let user_str = username.as_str().to_string();
@@ -225,6 +223,8 @@ fn main() -> Result<(), slint::PlatformError> {
                 .env("PARTITION_STRATEGY", &part_num)
                 .env("GUI_FILESYSTEM", &fs_str)
                 .env("GUI_REPLACE_PART", &replace_str)
+                .env("GUI_ROOT_PART", &root_part_str) 
+                .env("GUI_EFI_PART", &efi_part_str)   
                 .env("GUI_HOSTNAME", &host_str)
                 .env("GUI_USERNAME", &user_str)
                 .env("GUI_PASSWORD", &pass_str)
