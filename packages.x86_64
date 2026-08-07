@@ -9,12 +9,16 @@ dosfstools
 e2fsprogs
 nano
 parted
-vim
 ntfs-3g
 networkmanager
 iwd
 chaotic-keyring
 chaotic-mirrorlist
+
+# --- GRAPHICAL PARTITIONING & FILESYSTEM SUPPORT ---
+gparted
+btrfs-progs
+xfsprogs
 
 # --- USB RECOGNITION & SYSTEM TOOLS ---
 udisks2
