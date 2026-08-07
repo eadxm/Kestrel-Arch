@@ -7,7 +7,7 @@ set -eE -o pipefail
 STATUS_FILE="/tmp/kestrel_status"
 
 update_status() {
-    # Strip ANSI color codes to prevent weird boxes in Slint UI
+    # Strip ANSI color codes to prevent weird characters in Slint UI log
     local clean_msg=$(echo -e "$1" | sed -r 's/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[mGK]//g')
     echo "$clean_msg" > "$STATUS_FILE"
     
@@ -68,11 +68,21 @@ if [ "$NON_INTERACTIVE" = "1" ]; then
     
     TARGET_DRIVE="${TARGET_DISK}"
     INSTALL_MODE="${INSTALL_MODE:-2}"
-    INSTALL_STRATEGY="${GUI_INSTALL_MODE:-WIPE}"
+    
+    # Translate Slint's 1, 2, 3 into strategy strings
+    case "$PARTITION_STRATEGY" in
+        "1") INSTALL_STRATEGY="WIPE" ;;
+        "2") INSTALL_STRATEGY="REPLACE" ;;
+        "3") INSTALL_STRATEGY="MANUAL" ;;
+        *) INSTALL_STRATEGY="WIPE" ;;
+    esac
+
     FILESYSTEM="${GUI_FILESYSTEM:-ext4}"
     
-    ARCH_ROOT="${GUI_ARCH_ROOT:-}"
-    ARCH_EFI="${GUI_ARCH_EFI:-}"
+    # Variables passed from the Advanced Partitioning GUI
+    GUI_REPLACE_PART="${GUI_REPLACE_PART:-}"
+    GUI_ROOT_PART="${GUI_ROOT_PART:-}"
+    GUI_EFI_PART="${GUI_EFI_PART:-}"
     
     system_hostname="${GUI_HOSTNAME:-kestrel}"
     username="${GUI_USERNAME:-kestrel}"
@@ -95,13 +105,11 @@ TARGET="/mnt"
 ISO_CACHE="/opt/offline_cache"
 GRUB_OS_PROBER="true" 
 EFI_DIR="/boot/efi"
-ARCH_ROOT="${ARCH_ROOT}"
 DISPLAY_MANAGER="sddm"
 
 # =====================================================================
 #              CPU ARCHITECTURE DETECTION (v1 vs v3)
 # =====================================================================
-# Dynamically switch between CachyOS kernel and Standard kernel based on CPU age
 if /usr/lib/ld-linux-x86-64.so.2 --help | grep -q "x86-64-v3 (supported, searched)"; then
     echo "[INFO] Modern CPU detected (x86-64-v3). Using CachyOS Kernel."
     KERNEL_PKG="linux-cachyos linux-cachyos-headers"
@@ -201,10 +209,9 @@ FILESYSTEM="${FILESYSTEM:-ext4}"
 PROVISIONING_COMPLETE=0
 RESET_STRATEGY=0
 
-# Master Loop: Allows us to abort manual mode and restart the menu
+# Master Loop: Allows CLI users to abort manual mode and restart the menu
 while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
 
-    # Show menu if no strategy is set OR if the user aborted manual mode
     if [ -z "$INSTALL_STRATEGY" ] || [ "$RESET_STRATEGY" = "1" ]; then
         echo "=========================================================="
         echo "          STEP 2: STORAGE PROVISIONING PATHWAY            "
@@ -246,7 +253,9 @@ while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
                 ARCH_EFI="${TARGET_DRIVE}${PART_PREFIX}1"
                 ARCH_ROOT="${TARGET_DRIVE}${PART_PREFIX}2"
                 
+                echo "[INFO] Formatting $ARCH_EFI to FAT32..."
                 mkfs.vfat -F 32 "$ARCH_EFI"
+                echo "[INFO] Formatting $ARCH_ROOT to $FILESYSTEM..."
                 if [ "$FILESYSTEM" = "btrfs" ]; then mkfs.btrfs -f "$ARCH_ROOT"; else mkfs.ext4 -F "$ARCH_ROOT"; fi
                 
                 mount "$ARCH_ROOT" "$TARGET"
@@ -260,6 +269,7 @@ while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
                 partprobe "$TARGET_DRIVE"; udevadm settle; sleep 2
                 ARCH_ROOT="${TARGET_DRIVE}${PART_PREFIX}1"
                 
+                echo "[INFO] Formatting $ARCH_ROOT to $FILESYSTEM..."
                 if [ "$FILESYSTEM" = "btrfs" ]; then mkfs.btrfs -f "$ARCH_ROOT"; else mkfs.ext4 -F "$ARCH_ROOT"; fi
                 mount "$ARCH_ROOT" "$TARGET"
                 EFI_DIR="/boot"
@@ -270,28 +280,38 @@ while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
             
         "REPLACE")
             echo "====== REPLACE TARGET PARTITION ======"
-            if [ -z "$ARCH_ROOT" ]; then
-                lsblk "$TARGET_DRIVE" -o NAME,SIZE,TYPE,FSTYPE
-                while true; do
-                    read -r -p "Enter partition to FORMAT and REPLACE (e.g., /dev/sda2): " ARCH_ROOT
-                    if [ -b "$ARCH_ROOT" ] && [ "$ARCH_ROOT" != "$TARGET_DRIVE" ]; then break; fi
-                done
-            fi
             
+            # --- DUAL-MODE CATCH: CLI vs GUI ---
             if [ "$NON_INTERACTIVE" != "1" ]; then
+                if [ -z "$ARCH_ROOT" ]; then
+                    lsblk "$TARGET_DRIVE" -o NAME,SIZE,TYPE,FSTYPE
+                    while true; do
+                        read -r -p "Enter partition to FORMAT and REPLACE (e.g., /dev/sda2): " ARCH_ROOT
+                        if [ -b "$ARCH_ROOT" ] && [ "$ARCH_ROOT" != "$TARGET_DRIVE" ]; then break; fi
+                    done
+                fi
                 read -r -p "Type 'NUKE' to erase $ARCH_ROOT: " CONFIRM_NUKE
                 [[ "${CONFIRM_NUKE^^}" != "NUKE" ]] && exit 1
+            else
+                ARCH_ROOT="$GUI_REPLACE_PART"
+                echo "[INFO] GUI Mode active. Targeting $ARCH_ROOT for replacement."
             fi
             
+            echo "[INFO] Formatting $ARCH_ROOT to $FILESYSTEM..."
             if [ "$FILESYSTEM" = "btrfs" ]; then mkfs.btrfs -f "$ARCH_ROOT"; else mkfs.ext4 -F "$ARCH_ROOT"; fi
             mount "$ARCH_ROOT" "$TARGET"
             
             if [ -d "/sys/firmware/efi" ]; then
-                if [ -z "$ARCH_EFI" ]; then
-                    while true; do
-                        read -r -p "Enter existing EFI partition path (e.g., /dev/sda1): " ARCH_EFI
-                        if [ -b "$ARCH_EFI" ] && [ "$ARCH_EFI" != "$TARGET_DRIVE" ]; then break; fi
-                    done
+                if [ "$NON_INTERACTIVE" != "1" ]; then
+                    if [ -z "$ARCH_EFI" ]; then
+                        while true; do
+                            read -r -p "Enter existing EFI partition path (e.g., /dev/sda1): " ARCH_EFI
+                            if [ -b "$ARCH_EFI" ] && [ "$ARCH_EFI" != "$TARGET_DRIVE" ]; then break; fi
+                        done
+                    fi
+                else
+                    # In Replace mode, GUI should pass the EFI partition if known, or we guess it.
+                    ARCH_EFI="${GUI_EFI_PART:-${TARGET_DRIVE}${PART_PREFIX}1}"
                 fi
                 mkdir -p "$TARGET/boot/efi"
                 mount -t vfat "$ARCH_EFI" "$TARGET/boot/efi"
@@ -301,7 +321,9 @@ while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
             ;;
 
         "MANUAL")
-            echo "====== MANUAL PROVISIONING ======"
+            echo "====== ADVANCED PROVISIONING ======"
+            
+            # --- DUAL-MODE CATCH: CLI vs GUI ---
             if [ "$NON_INTERACTIVE" != "1" ]; then
                 echo "[INFO] Launching cfdisk for manual partitioning..."
                 echo "----------------------------------------------------------"
@@ -331,33 +353,26 @@ while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
                             continue
                         elif [ "$CFDISK_CHOICE" = "3" ]; then
                             RESET_STRATEGY=1
-                            break # Break the cfdisk loop
+                            break
                         else
-                            break # User intentionally made no changes, proceed to formatting
+                            break
                         fi
                     else
-                        break # Changes were detected, break the loop and proceed
+                        break
                     fi
                 done
                 
-                # The Escape Hatch: If user selected [3], restart the main outer loop
-                if [ "$RESET_STRATEGY" = "1" ]; then
-                    continue 
-                fi
+                if [ "$RESET_STRATEGY" = "1" ]; then continue; fi
                 
                 clear
                 echo "====== ASSIGN MOUNT POINTS & FORMATTING ======"
                 lsblk "$TARGET_DRIVE" -o NAME,SIZE,TYPE,FSTYPE
                 echo "----------------------------------------------------------"
-                echo "⚠️  You MUST assign valid mount points to continue."
                 
-                # 1. Strict Assignment and Formatting for ROOT
+                # Strict Root Mapping
                 while true; do
                     read -r -p "Enter partition for Arch ROOT (e.g., /dev/sda2): " ARCH_ROOT
-                    if [ -z "$ARCH_ROOT" ]; then
-                        echo "[ERROR] Cannot be blank. A ROOT partition is mandatory."
-                        continue
-                    fi
+                    if [ -z "$ARCH_ROOT" ]; then continue; fi
                     if [ -b "$ARCH_ROOT" ]; then
                         read -r -p "Format $ARCH_ROOT? (y/N): " FORMAT_ROOT
                         if [[ "$FORMAT_ROOT" =~ ^[Yy]$ ]]; then
@@ -365,51 +380,57 @@ while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
                             ROOT_FS=${ROOT_FS:-ext4}
                             if [ "$ROOT_FS" = "btrfs" ]; then mkfs.btrfs -f "$ARCH_ROOT"; else mkfs.ext4 -F "$ARCH_ROOT"; fi
                         fi
-                        # Verify the mount actually works before breaking the loop
-                        if mount "$ARCH_ROOT" "$TARGET"; then
-                            break
-                        else
-                            echo "[ERROR] Failed to mount $ARCH_ROOT. Please try again."
-                        fi
-                    else 
-                        echo "[ERROR] Invalid partition path."
-                    fi
+                        if mount "$ARCH_ROOT" "$TARGET"; then break; else echo "[ERROR] Mount failed."; fi
+                    else echo "[ERROR] Invalid partition path."; fi
                 done
                 
-                # 2. Strict Assignment and Formatting for EFI (If UEFI System)
+                # Strict EFI Mapping
                 if [ -d "/sys/firmware/efi" ]; then
                     while true; do
                         read -r -p "Enter EFI partition path (e.g., /dev/sda1): " ARCH_EFI
-                        if [ -z "$ARCH_EFI" ]; then
-                            echo "[ERROR] Cannot be blank. UEFI systems require an EFI partition."
-                            continue
-                        fi
+                        if [ -z "$ARCH_EFI" ]; then continue; fi
                         if [ -b "$ARCH_EFI" ]; then
                             read -r -p "Format $ARCH_EFI to FAT32? (y/N): " FORMAT_EFI
-                            if [[ "$FORMAT_EFI" =~ ^[Yy]$ ]]; then
-                                mkfs.vfat -F 32 "$ARCH_EFI"
-                            fi
+                            if [[ "$FORMAT_EFI" =~ ^[Yy]$ ]]; then mkfs.vfat -F 32 "$ARCH_EFI"; fi
                             mkdir -p "$TARGET/boot/efi"
-                            # Verify EFI mount works
-                            if mount -t vfat "$ARCH_EFI" "$TARGET/boot/efi"; then
-                                break
-                            else
-                                echo "[ERROR] Failed to mount EFI partition. Please try again."
-                            fi
-                        else 
-                            echo "[ERROR] Invalid partition path."
-                        fi
+                            if mount -t vfat "$ARCH_EFI" "$TARGET/boot/efi"; then break; else echo "[ERROR] Mount failed."; fi
+                        else echo "[ERROR] Invalid partition path."; fi
                     done
                 else
                     mkdir -p "$TARGET/boot"
                 fi
                 
-                # 3. Ask about OS Prober (for dual boot detection)
                 read -r -p "Enable OS Prober to detect other Operating Systems? (Y/n): " MANUAL_PROBER
                 if [[ "$MANUAL_PROBER" =~ ^[Nn]$ ]]; then GRUB_OS_PROBER="false"; else GRUB_OS_PROBER="true"; fi
-                
+
             else
-                echo "[INFO] GUI Manual mode active. Proceeding with pre-configured mounts."
+                # GUI MODE: Slint has already mapped the partitions visually!
+                echo "[INFO] GUI Advanced Mode active. Applying pre-configured mounts..."
+                
+                # 1. Format and Mount ROOT
+                if [ -b "$GUI_ROOT_PART" ]; then
+                    echo "[INFO] Formatting $GUI_ROOT_PART to $FILESYSTEM..."
+                    if [ "$FILESYSTEM" = "btrfs" ]; then mkfs.btrfs -f "$GUI_ROOT_PART"; else mkfs.ext4 -F "$GUI_ROOT_PART"; fi
+                    mount "$GUI_ROOT_PART" "$TARGET"
+                else
+                    echo "[ERROR] Invalid or missing GUI ROOT partition."
+                    exit 1
+                fi
+                
+                # 2. Format and Mount EFI (If UEFI System)
+                if [ -d "/sys/firmware/efi" ]; then
+                    if [ -n "$GUI_EFI_PART" ] && [ -b "$GUI_EFI_PART" ]; then
+                        echo "[INFO] Formatting $GUI_EFI_PART to FAT32..."
+                        mkfs.vfat -F 32 "$GUI_EFI_PART"
+                        mkdir -p "$TARGET/boot/efi"
+                        mount -t vfat "$GUI_EFI_PART" "$TARGET/boot/efi"
+                    else
+                        echo "[ERROR] UEFI system requires an EFI partition, but GUI did not map one."
+                        exit 1
+                    fi
+                else
+                    mkdir -p "$TARGET/boot"
+                fi
                 GRUB_OS_PROBER="true"
             fi
             
@@ -478,7 +499,6 @@ if [ -z "$PERF_CHOICE" ]; then read -r -p "Apply Hyper-Performance Matrix? (ZRAM
 UCODE_IMG=""
 if grep -q "AuthenticAMD" /proc/cpuinfo; then CORE_PKGS="$CORE_PKGS amd-ucode"; UCODE_IMG="amd-ucode.img"; elif grep -q "GenuineIntel" /proc/cpuinfo; then CORE_PKGS="$CORE_PKGS intel-ucode"; UCODE_IMG="intel-ucode.img"; fi
 
-# Universal Hybrid Graphics Detection Mechanism
 HAS_NVIDIA=0; HAS_INTEGRATED=0
 if lspci | grep -iq nvidia; then CORE_PKGS="$CORE_PKGS nvidia nvidia-utils nvidia-prime"; HAS_NVIDIA=1; fi
 if lspci | grep -E -iq "amd|intel"; then HAS_INTEGRATED=1; fi
@@ -520,7 +540,6 @@ if [ -z "$DE_CHOICE" ]; then
     fi
 fi
 
-# FIX: Replaced 'nitrogen' with 'feh' to prevent dead package crashing
 case $DE_CHOICE in
     1) CORE_PKGS="$CORE_PKGS hyprland waybar kitty rofi-wayland xdg-desktop-portal-hyprland polkit-kde-agent thunar gvfs sddm" ;;
     2) CORE_PKGS="$CORE_PKGS plasma-desktop plasma-workspace plasma-nm power-profiles-daemon kscreen konsole dolphin ark kate spectacle discover packagekit-qt6 sddm-kcm sddm" ;;
@@ -554,7 +573,6 @@ if [ -z "$BOOT_CHOICE" ]; then
     while true; do read -r -p "Choice (1-4): " BOOT_CHOICE; [[ "$BOOT_CHOICE" =~ ^[1-4]$ ]] && break; done
 fi
 
-# FAIL-SAFE: Force GRUB if user selects systemd-boot on a Legacy BIOS machine
 if [ ! -d "/sys/firmware/efi" ] && [ "$BOOT_CHOICE" = "2" ]; then
     echo "[WARNING] systemd-boot requires UEFI. Falling back to GRUB for Legacy BIOS."
     update_status "WARNING: systemd-boot requires UEFI. Enforcing GRUB fallback..."
@@ -562,10 +580,9 @@ if [ ! -d "/sys/firmware/efi" ] && [ "$BOOT_CHOICE" = "2" ]; then
     sleep 2
 fi
 
-# Add explicit runtime target applications per chosen manager
 case $BOOT_CHOICE in
     1) CORE_PKGS="$CORE_PKGS grub" ;;
-    2) : ;; # systemd-boot is built into systemd core natively
+    2) : ;; 
     3) CORE_PKGS="$CORE_PKGS refind" ;;
     4) CORE_PKGS="$CORE_PKGS limine" ;;
 esac
@@ -605,8 +622,11 @@ Server = file://$ISO_CACHE/
 EOF
     mkdir -p "$TARGET/var/cache/pacman/pkg"
     cp -n "$ISO_CACHE"/* "$TARGET/var/cache/pacman/pkg/" 2>/dev/null || true
-    # FIX: Using VALIDATED_PACKAGES array
+    
+    # CRITICAL FIX: Explicitly showing output for GUI console tracking
+    echo "[INFO] Executing Offline Pacstrap Phase..."
     pacstrap -C /tmp/offline-pacman.conf -K "$TARGET" --noconfirm "${VALIDATED_PACKAGES[@]}"
+    
     cp /etc/pacman.conf "$TARGET/etc/pacman.conf"
 else
     timedatectl set-ntp true
@@ -626,8 +646,12 @@ else
     DOWNLOAD_SUCCESS=0
     while [ "$DOWNLOAD_SUCCESS" -eq 0 ]; do
         rm -f "$TARGET/var/lib/pacman/db.lck" 2>/dev/null || true
-        # FIX: Using VALIDATED_PACKAGES array
-        if pacstrap -K "$TARGET" --noconfirm "${VALIDATED_PACKAGES[@]}"; then DOWNLOAD_SUCCESS=1; else 
+        
+        # CRITICAL FIX: Ensure stdout isn't piped to dev/null so Slint logs it correctly
+        echo "[INFO] Executing Online Pacstrap Phase..."
+        if pacstrap -K "$TARGET" --noconfirm "${VALIDATED_PACKAGES[@]}"; then 
+            DOWNLOAD_SUCCESS=1; 
+        else 
             if [ "$NON_INTERACTIVE" = "1" ]; then exit 1; else
                 read -r -p "Install failed! Retry? (1=Yes, 2=Reboot): " FAIL_CHOICE; [ "$FAIL_CHOICE" = "2" ] && { umount -R "$TARGET"; reboot; }
             fi
@@ -637,7 +661,6 @@ else
 fi
 
 mkdir -p "$TARGET/etc/pacman.d"
-
 echo -e "\n[chaotic-aur]\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> "$TARGET/etc/pacman.conf"
 genfstab -U "$TARGET" >> "$TARGET/etc/fstab"
 
