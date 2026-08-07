@@ -39,7 +39,7 @@ if [ "$UI_CHOICE" = "1" ]; then
     pacman-key --populate archlinux >/dev/null 2>&1 || true
 
     # Perform a full system sync/upgrade first to prevent partial upgrade conflicts
-    pacman -Syu --noconfirm
+    pacman -Sy --noconfirm
     # Install necessary GUI components for a vanilla Arch ISO
     pacman -S --noconfirm cage wayland ttf-dejavu gparted polkit ttf-liberation noto-fonts pciutils
     
