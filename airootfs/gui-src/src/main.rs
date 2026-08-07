@@ -183,6 +183,83 @@ fn main() -> Result<(), slint::PlatformError> {
     });
 
     // ==========================================
+    // PARTITION MANAGER (GParted & lsblk logic)
+    // ==========================================
+    let ui_handle_gparted = ui.as_weak();
+    ui.global::<InstallerLogic>().on_launch_gparted(move |disk| {
+        let ui_handle = ui_handle_gparted.clone();
+        
+        // Clean out the display formatting (e.g. "/dev/sda - 16G" -> "/dev/sda")
+        let pure_disk_path = disk.as_str().split_whitespace().next().unwrap_or("").to_string();
+        
+        // 1. Launch GParted GUI (Will take over the screen natively until the user closes it)
+        let _ = Command::new("gparted")
+            .arg(&pure_disk_path)
+            .status(); // .status() safely blocks the Rust installer until GParted is closed!
+
+        // 2. Once GParted closes, run lsblk -P to read the new partitions mapped by the user
+        let output = Command::new("lsblk")
+            .arg("-P")
+            .arg("-o").arg("NAME,FSTYPE,LABEL,MOUNTPOINT,SIZE")
+            .arg(&pure_disk_path)
+            .output();
+
+        if let Ok(out) = output {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            let mut partitions: Vec<PartitionData> = Vec::new();
+            
+            // Loop array for clean UI rendering colors
+            let colors = [
+                slint::Color::from_rgb_u8(239, 68, 68),  // Red
+                slint::Color::from_rgb_u8(245, 158, 11), // Orange
+                slint::Color::from_rgb_u8(16, 185, 129), // Green
+                slint::Color::from_rgb_u8(59, 130, 246), // Blue
+                slint::Color::from_rgb_u8(168, 85, 247), // Purple
+            ];
+            let mut color_idx = 0;
+
+            for line in stdout.lines() {
+                // Inline closure to extract keys from standard `lsblk -P` pairs (e.g., NAME="sda1")
+                let get_val = |key: &str| -> String {
+                    if let Some(start) = line.find(&format!("{}=\"", key)) {
+                        let content_start = start + key.len() + 2;
+                        if let Some(end) = line[content_start..].find('"') {
+                            return line[content_start..content_start + end].to_string();
+                        }
+                    }
+                    String::new()
+                };
+
+                let name = get_val("NAME");
+                let base_disk = pure_disk_path.replace("/dev/", "");
+                
+                // Skip the main drive itself, only capture the generated partitions
+                if !name.is_empty() && name != base_disk {
+                    let fs = get_val("FSTYPE");
+                    let part = PartitionData {
+                        name: format!("/dev/{}", name).into(),
+                        fstype: if fs.is_empty() { "Unformatted".into() } else { fs.into() },
+                        label: get_val("LABEL").into(),
+                        mountpoint: get_val("MOUNTPOINT").into(),
+                        size: get_val("SIZE").into(),
+                        color_hex: colors[color_idx % colors.len()],
+                    };
+                    partitions.push(part);
+                    color_idx += 1;
+                }
+            }
+
+            // 3. Send the parsed partitions back to the Slint GUI thread!
+            slint::invoke_from_event_loop(move || {
+                if let Some(ui) = ui_handle.upgrade() {
+                    let part_model = Rc::new(VecModel::from(partitions));
+                    ui.global::<InstallerLogic>().set_current_partitions(ModelRc::from(part_model));
+                }
+            }).unwrap();
+        }
+    });
+
+    // ==========================================
     // INSTALLER LOGIC: Execute Bash Backend
     // ==========================================
     let ui_handle = ui.as_weak();
