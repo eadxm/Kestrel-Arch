@@ -112,10 +112,10 @@ fn main() -> Result<(), slint::PlatformError> {
                                 net_list.push(clean_net.into());
                             }
                         }
-                        if !net_list.is_empty() {
-                            let net_model = Rc::new(VecModel::from(net_list));
+                     if !net_list.is_empty() {
                             slint::invoke_from_event_loop(move || {
                                 if let Some(ui) = ui_handle.upgrade() {
+                                    let net_model = Rc::new(VecModel::from(net_list));
                                     ui.set_available_networks(ModelRc::from(net_model.clone()));
                                 }
                             }).unwrap();
