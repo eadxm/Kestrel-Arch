@@ -115,13 +115,13 @@ DISPLAY_MANAGER="sddm"
 #              CPU ARCHITECTURE DETECTION (v1 vs v3)
 # =====================================================================
 if /usr/lib/ld-linux-x86-64.so.2 --help | grep -q "x86-64-v3 (supported, searched)"; then
-    echo "[INFO] Modern CPU detected (x86-64-v3). Using CachyOS Kernel."
+    echo "[INFO] Modern CPU architecture (x86-64-v3) detected. Using CachyOS Kernel."
     KERNEL_PKG="linux-cachyos linux-cachyos-headers"
     VMLINUZ="vmlinuz-linux-cachyos"
     INITRAMFS="initramfs-linux-cachyos.img"
 else
-    echo "[WARNING] Legacy CPU detected. Falling back to Standard Arch Kernel."
-    update_status "WARNING: Legacy CPU detected. Using standard Arch kernel."
+    echo "[WARNING] Legacy CPU architecture detected. Falling back to Standard Arch Kernel."
+    update_status "WARNING: Legacy CPU architecture detected. Using standard Arch kernel."
     KERNEL_PKG="linux linux-headers"
     VMLINUZ="vmlinuz-linux"
     INITRAMFS="initramfs-linux.img"
@@ -207,7 +207,9 @@ fi
 # =====================================================================
 clear
 update_status "PROGRESS: Preparing Storage and Partitioning..."
-if [ ! -d "$ISO_CACHE" ]; then pacman -Sy --noconfirm ntfs-3g parted >/dev/null 2>&1 || true; fi
+
+# Ensure parted and gparted are available in the live environment
+if [ ! -d "$ISO_CACHE" ]; then pacman -Sy --noconfirm ntfs-3g parted gparted >/dev/null 2>&1 || true; fi
 
 FILESYSTEM="${FILESYSTEM:-ext4}"
 PROVISIONING_COMPLETE=0
@@ -222,7 +224,7 @@ while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
         echo "=========================================================="
         echo " [1] WIPE    - Erase entire disk and install fresh."
         echo " [2] REPLACE - Format a specific target partition."
-        echo " [3] MANUAL  - Launch cfdisk and configure manually."
+        echo " [3] MANUAL  - Launch Partition Manager (GParted/cfdisk)."
         while true; do 
             read -r -p "Enter your choice (1-3): " MENU_CHOICE
             case $MENU_CHOICE in
@@ -333,16 +335,23 @@ while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
             echo "====== ADVANCED PROVISIONING ======"
             
             if [ "$NON_INTERACTIVE" != "1" ]; then
-                echo "[INFO] Launching cfdisk for manual partitioning..."
+                echo "[INFO] Launching Partition Manager..."
                 echo "----------------------------------------------------------"
-                echo "👉 INSTRUCTIONS: Build your partitions, select 'Write' to save,"
-                echo "   and then select 'Quit'. The installer will automatically resume!"
+                echo "👉 INSTRUCTIONS: Build your partitions, Apply/Write changes,"
+                echo "   and then exit the manager. The installer will automatically resume!"
                 echo "----------------------------------------------------------"
                 sleep 4
                 
                 while true; do
                     sfdisk -d "$TARGET_DRIVE" > /tmp/kestrel_part_before 2>/dev/null || true
-                    cfdisk "$TARGET_DRIVE" || true
+                    
+                    # SMART DETECTOR: Launch GParted if GUI is active, otherwise fallback to cfdisk for Headless TTY
+                    if { [ -n "$WAYLAND_DISPLAY" ] || [ -n "$DISPLAY" ]; } && command -v gparted &> /dev/null; then
+                        gparted "$TARGET_DRIVE" || true
+                    else
+                        cfdisk "$TARGET_DRIVE" || true
+                    fi
+                    
                     sfdisk -d "$TARGET_DRIVE" > /tmp/kestrel_part_after 2>/dev/null || true
                     
                     if cmp -s /tmp/kestrel_part_before /tmp/kestrel_part_after; then
@@ -351,7 +360,7 @@ while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
                         echo " [WARNING] No changes were written to the drive!"
                         echo "=========================================================="
                         echo " Options:"
-                        echo "  [1] I forgot to save (Go back to cfdisk)"
+                        echo "  [1] I forgot to apply/save (Go back to manager)"
                         echo "  [2] I want to proceed anyway (Assign Mount Points)"
                         echo "  [3] Abort and go back to Main Menu (Select WIPE/REPLACE)"
                         echo "----------------------------------------------------------"
