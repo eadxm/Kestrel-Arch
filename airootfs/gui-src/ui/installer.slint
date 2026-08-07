@@ -288,7 +288,7 @@ export component InstallerWindow inherits Window {
                     HorizontalBox {
                         alignment: center; spacing: 15px; padding-top: 10px;
                         GlowingButton { text: "Back"; primary: false; height: 38px; clicked => { root.active_step = 1; } }
-                        GlowingButton { text: "Rescan", primary: false; height: 38px; clicked => { InstallerLogic.rescan_wifi(); } }
+                        GlowingButton { text: "Rescan"; primary: false; height: 38px; clicked => { InstallerLogic.rescan_wifi(); } }
                         GlowingButton { 
                             text: "Connect & Continue"; primary: true; height: 38px;
                             clicked => { 
