@@ -9,7 +9,7 @@ GITHUB_REPO="eadxm/Kestrel-Arch"
 
 clear
 echo "=========================================================="
-echo "          KESTREL ARCH UNIVERSAL BOOTSTRAPPER             "
+echo "    KESTREL ARCH UNIVERSAL BOOTSTRAPPER   "
 echo "=========================================================="
 echo "This script will deploy Kestrel Arch on a vanilla Arch Linux ISO."
 echo "An active internet connection is strictly required."
@@ -34,14 +34,22 @@ chmod +x /usr/local/bin/install.sh
 if [ "$UI_CHOICE" = "1" ]; then
     echo "=> Initializing Graphical Environment in Live RAM..."
     
+    # Expand cowspace tmpfs limit to 75% to allow GUI installs on low-RAM machines (like 2GB VMs)
+    echo "=> Expanding RAM-disk capacity..."
+    mount -o remount,size=75% /
+    
     # Sync Arch keys to prevent signature errors on vanilla ISOs
     pacman-key --init >/dev/null 2>&1 || true
     pacman-key --populate archlinux >/dev/null 2>&1 || true
 
-    # Perform a full system sync/upgrade first to prevent partial upgrade conflicts
+    # Sync database
     pacman -Sy --noconfirm
-    # Install necessary GUI components for a vanilla Arch ISO
+    # Install necessary GUI components for a vanilla Arch ISO, overriding any RAM conflicts
     pacman -S --noconfirm --overwrite "*" cage wayland ttf-dejavu gparted polkit ttf-liberation noto-fonts pciutils
+    
+    # Instantly free up ~140 MB of RAM by deleting cached installer packages
+    echo "=> Clearing package cache to free memory..."
+    pacman -Sc --noconfirm
     
     echo "=> Fetching Kestrel GUI Binary..."
     curl -sL "https://github.com/${GITHUB_REPO}/releases/latest/download/kestrel-gui" -o /usr/local/bin/kestrel-gui
