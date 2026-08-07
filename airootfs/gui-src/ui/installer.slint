@@ -118,6 +118,30 @@ component RadioOption inherits Rectangle {
     }
 }
 
+// ==========================================
+// PARTITION VISUALIZER COMPONENT
+// ==========================================
+component PartitionVisualizer inherits VerticalBox {
+    in property <string> disk_name;
+    spacing: 6px;
+
+    Text { text: "Partition layout context for " + root.disk_name; color: #D1D5DB; font-size: 11px; font-weight: 600; }
+
+    Rectangle {
+        width: 100%; height: 22px; border-radius: 4px; clip: true; background: #1F2937;
+        HorizontalLayout {
+            Rectangle { width: 25%; background: #EF4444; }
+            Rectangle { width: 75%; background: #06B6D4; }
+        }
+    }
+    
+    HorizontalBox {
+        spacing: 15px;
+        HorizontalBox { spacing: 4px; Rectangle { width: 8px; height: 8px; background: #EF4444; border-radius: 2px; } Text { text: "/dev/sda1 (EFI - 512M)"; color: #9CA3AF; font-size: 10px; } }
+        HorizontalBox { spacing: 4px; Rectangle { width: 8px; height: 8px; background: #06B6D4; border-radius: 2px; } Text { text: "/dev/sda2 (Root - Target)"; color: #9CA3AF; font-size: 10px; } }
+    }
+}
+
 export component InstallerWindow inherits Window {
     title: "Kestrel Arch Deployment Engine";
     
@@ -304,22 +328,24 @@ export component InstallerWindow inherits Window {
                 }
 
                 // =========================================================
-                // STEP 3: Target Drive Selection Window ONLY
+                // STEP 3: Target Drive Selection Window (With Partition Bar)
                 // =========================================================
                 if (root.active_step == 3) : VerticalBox {
-                    alignment: center; spacing: 15px; padding-left: 60px; padding-right: 60px;
+                    alignment: center; spacing: 12px; padding-left: 60px; padding-right: 60px;
                     Text { text: "Target Drive Selection"; font-size: 22px; font-weight: 700; color: #A5F3FC; horizontal-alignment: center; }
-                    Text { text: "Choose the physical storage device where Kestrel Arch will be installed."; color: #9CA3AF; font-size: 13px; horizontal-alignment: center; }
-                    Rectangle { height: 10px; } 
-
+                    Text { text: "Choose the physical storage device where Kestrel Arch will be installed."; color: #9CA3AF; font-size: 12px; horizontal-alignment: center; }
+                    
                     VerticalBox {
-                        spacing: 8px;
-                        Text { text: "Available Storage Drives:"; font-size: 13px; font-weight: 600; color: #D1D5DB; }
-                        ComboBox { model: root.available_disks; current-value: root.selected_disk; selected(val) => { root.selected_disk = val; } height: 40px; }
+                        spacing: 6px;
+                        Text { text: "Available Storage Drives:"; font-size: 12px; font-weight: 600; color: #D1D5DB; }
+                        ComboBox { model: root.available_disks; current-value: root.selected_disk; selected(val) => { root.selected_disk = val; } height: 35px; }
                     }
+
+                    // Partition Visualizer Bar added here
+                    PartitionVisualizer { disk_name: root.selected_disk; }
                     
                     HorizontalBox {
-                        alignment: center; spacing: 15px; padding-top: 30px;
+                        alignment: center; spacing: 15px; padding-top: 15px;
                         GlowingButton { text: "Back"; primary: false; clicked => { root.active_step = root.selected_mode == "1. Online (Download Latest)" ? 2 : 1; } }
                         GlowingButton { text: "Next Step"; primary: true; clicked => { root.active_step = 30; } }
                     }
@@ -401,34 +427,36 @@ export component InstallerWindow inherits Window {
                 }
 
                 // =========================================================
-                // STEP 32: Replace Partition Specific Options Window
+                // STEP 32: Replace Partition (With Partition Bar)
                 // =========================================================
                 if (root.active_step == 32) : VerticalBox {
-                    alignment: center; spacing: 15px; padding-left: 60px; padding-right: 60px;
-                    Text { text: "Replace Partition"; font-size: 22px; font-weight: 700; color: #A5F3FC; horizontal-alignment: center; }
-                    Text { text: "Target Drive Context: " + root.selected_disk; color: #9CA3AF; horizontal-alignment: center; }
+                    alignment: center; spacing: 10px; padding-left: 60px; padding-right: 60px;
+                    Text { text: "Replace Partition"; font-size: 20px; font-weight: 700; color: #A5F3FC; horizontal-alignment: center; }
+
+                    // Partition Visualizer Bar added here so user knows partition paths
+                    PartitionVisualizer { disk_name: root.selected_disk; }
 
                     VerticalBox {
-                        spacing: 6px;
-                        Text { text: "Enter specific partition path to FORMAT (e.g., /dev/sda3):"; font-size: 13px; font-weight: 600; color: #D1D5DB; }
-                        LineEdit { text: root.replace_partition_path; edited(val) => { root.replace_partition_path = val; } height: 38px; }
+                        spacing: 4px;
+                        Text { text: "Enter target partition path (e.g., /dev/sda2):"; font-size: 12px; font-weight: 600; color: #D1D5DB; }
+                        LineEdit { text: root.replace_partition_path; edited(val) => { root.replace_partition_path = val; } height: 35px; }
                     }
 
                     VerticalBox {
-                        spacing: 6px;
-                        Text { text: "Select Filesystem:"; font-size: 13px; font-weight: 600; color: #D1D5DB; }
-                        ComboBox { model: ["ext4", "btrfs"]; current-value: root.target_filesystem; selected(val) => { root.target_filesystem = val; } height: 38px; }
+                        spacing: 4px;
+                        Text { text: "Select Filesystem:"; font-size: 12px; font-weight: 600; color: #D1D5DB; }
+                        ComboBox { model: ["ext4", "btrfs"]; current-value: root.target_filesystem; selected(val) => { root.target_filesystem = val; } height: 35px; }
                     }
 
                     HorizontalBox {
-                        alignment: center; spacing: 15px; padding-top: 20px;
+                        alignment: center; spacing: 15px; padding-top: 10px;
                         GlowingButton { text: "Back"; primary: false; clicked => { root.active_step = 30; } }
                         GlowingButton { 
                             text: "Confirm & Continue"; 
                             primary: true; 
                             clicked => { 
                                 if (root.replace_partition_path == "") {
-                                    root.error_message = "Please provide the target partition path (e.g., /dev/sda3).";
+                                    root.error_message = "Please provide the target partition path (e.g., /dev/sda2).";
                                     root.show_error_popup = true;
                                 } else {
                                     root.active_step = 4; 
@@ -569,67 +597,131 @@ export component InstallerWindow inherits Window {
                 }
 
                 // =========================================================
-                // STEP 5: Software & Environment Window ONLY
+                // STEP 5: Browser Selection Window (List with Descriptions)
                 // =========================================================
                 if (root.active_step == 5) : VerticalBox {
-                    alignment: center; spacing: 10px; padding-left: 60px; padding-right: 60px;
-                    Text { text: "Environment Setup"; font-size: 22px; font-weight: 700; color: #A5F3FC; horizontal-alignment: center; }
-                    Rectangle { height: 10px; }
+                    alignment: center; spacing: 10px; padding-left: 40px; padding-right: 40px;
+                    Text { text: "Web Browser Selection"; font-size: 22px; font-weight: 700; color: #A5F3FC; horizontal-alignment: center; }
+                    Text { text: "Choose your primary browser environment."; color: #9CA3AF; font-size: 12px; horizontal-alignment: center; }
+                    Rectangle { height: 5px; }
 
-                    VerticalBox {
-                        spacing: 4px; Text { text: "Default Browser:"; font-size: 13px; font-weight: 600; color: #D1D5DB; }
-                        ComboBox { 
-                            model: root.selected_mode == "2. Offline (Fast, Local Cache)" ? ["1. Zen Browser (Recommended)"] : ["1. Zen Browser (Recommended)", "2. LibreWolf", "3. Firefox", "4. Brave"]; 
-                            current-value: root.selected_browser; selected(val) => { root.selected_browser = val; } height: 38px; 
+                    Rectangle {
+                        height: 250px; width: 100%; border-radius: 8px; border-width: 1px; border-color: #1F2937; background: #020617;
+                        ScrollView {
+                            width: 100%; height: 100%;
+                            VerticalBox {
+                                padding: 8px; spacing: 6px;
+                                RadioOption { title: "1. Zen Browser (Recommended)"; description: "Highly optimized Firefox fork focused on privacy and speed."; active: root.selected_browser == "1. Zen Browser (Recommended)"; clicked => { root.selected_browser = "1. Zen Browser (Recommended)"; } }
+                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "2. LibreWolf"; description: "Customized version of Firefox prioritizing security and privacy."; active: root.selected_browser == "2. LibreWolf"; clicked => { root.selected_browser = "2. LibreWolf"; } }
+                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "3. Firefox"; description: "The standard open-source web browser engine."; active: root.selected_browser == "3. Firefox"; clicked => { root.selected_browser = "3. Firefox"; } }
+                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "4. Brave"; description: "Chromium-based browser with built-in tracker blocking."; active: root.selected_browser == "4. Brave"; clicked => { root.selected_browser = "4. Brave"; } }
+                            }
                         }
                     }
-
-                    VerticalBox {
-                        spacing: 4px; Text { text: "Desktop Environment:"; font-size: 13px; font-weight: 600; color: #D1D5DB; }
-                        ComboBox { 
-                            model: root.selected_mode == "2. Offline (Fast, Local Cache)" ? 
-                                ["Choose your environment", "1. Hyprland", "2. KDE Plasma", "3. XFCE"] : 
-                                ["Choose your environment", "1. Hyprland", "2. KDE Plasma", "3. XFCE", "4. GNOME", "5. Sway", "6. i3-wm", "7. Cinnamon", "8. Niri", "9. Qtile", "10. Wayfire", "11. bspwm", "12. Budgie", "13. Cosmic", "14. LXDE", "15. LXQt", "16. Mate", "17. Openbox"]; 
-                            current-value: root.selected_de; selected(val) => { root.selected_de = val; } height: 38px; 
-                        }
-                    }
-
-                    VerticalBox {
-                        spacing: 4px; Text { text: "Boot Manager:"; font-size: 13px; font-weight: 600; color: #D1D5DB; }
-                        ComboBox { model: ["1. GRUB", "2. systemd-boot", "3. rEFInd", "4. Limine"]; current-value: root.selected_boot; selected(val) => { root.selected_boot = val; } height: 38px; }
-                    }
-                    
-                    HorizontalBox {
-                        alignment: start; spacing: 8px;
-                        CheckBox { checked: root.perf_enabled; toggled => { root.perf_enabled = !root.perf_enabled; } }
-                        Text { text: "Apply Hyper-Performance Matrix (ZRAM, Fast I/O)"; color: #D1D5DB; font-size: 13px; font-weight: 600; vertical-alignment: center; }
-                    }
-
-                    Text { text: "WARNING: Final review. Proceeding will formally execute installation logic."; color: #EF4444; font-size: 12px; font-weight: 700; horizontal-alignment: center; }
                     
                     HorizontalBox {
                         alignment: center; spacing: 15px; padding-top: 15px;
                         GlowingButton { text: "Back"; primary: false; clicked => { root.active_step = 4; } }
+                        GlowingButton { text: "Next Step"; primary: true; clicked => { root.active_step = 51; } }
+                    }
+                }
+
+                // =========================================================
+                // STEP 51: Desktop Environment Selection (List with Descriptions)
+                // =========================================================
+                if (root.active_step == 51) : VerticalBox {
+                    alignment: center; spacing: 8px; padding-left: 30px; padding-right: 30px;
+                    Text { text: "Desktop Environment Setup"; font-size: 20px; font-weight: 700; color: #A5F3FC; horizontal-alignment: center; }
+                    Text { text: "Select your window manager or workspace environment."; color: #9CA3AF; font-size: 12px; horizontal-alignment: center; }
+
+                    Rectangle {
+                        height: 270px; width: 100%; border-radius: 8px; border-width: 1px; border-color: #1F2937; background: #020617;
+                        ScrollView {
+                            width: 100%; height: 100%;
+                            VerticalBox {
+                                padding: 8px; spacing: 6px;
+                                RadioOption { title: "1. Hyprland"; description: "Visually pleasing dynamic tiling Wayland compositor."; active: root.selected_de == "1. Hyprland"; clicked => { root.selected_de = "1. Hyprland"; } }
+                                RadioOption { title: "2. KDE Plasma"; description: "Comprehensive, flexible desktop environment offering KWin."; active: root.selected_de == "2. KDE Plasma"; clicked => { root.selected_de = "2. KDE Plasma"; } }
+                                RadioOption { title: "3. XFCE"; description: "Modern, lightweight, stable traditional desktop drop-down layout."; active: root.selected_de == "3. XFCE"; clicked => { root.selected_de = "3. XFCE"; } }
+                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "4. GNOME"; description: "User-friendly environment with a modern layout."; active: root.selected_de == "4. GNOME"; clicked => { root.selected_de = "4. GNOME"; } }
+                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "5. Sway"; description: "Tiling Wayland compositor; dynamic drop-in i3 upgrade."; active: root.selected_de == "5. Sway"; clicked => { root.selected_de = "5. Sway"; } }
+                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "6. i3-wm"; description: "Popular X11 tiling manager leveraging clean text configurations."; active: root.selected_de == "6. i3-wm"; clicked => { root.selected_de = "6. i3-wm"; } }
+                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "7. Cinnamon"; description: "Traditional desktop paradigm balancing internal features."; active: root.selected_de == "7. Cinnamon"; clicked => { root.selected_de = "7. Cinnamon"; } }
+                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "8. Niri"; description: "Scrollable tiling Wayland compositor optimizing fluid layout grid."; active: root.selected_de == "8. Niri"; clicked => { root.selected_de = "8. Niri"; } }
+                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "9. Qtile"; description: "Highly configurable environment scripted entirely in Python."; active: root.selected_de == "9. Qtile"; clicked => { root.selected_de = "9. Qtile"; } }
+                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "10. Wayfire"; description: "Wlroots Wayland engine mixing structural performance aesthetics."; active: root.selected_de == "10. Wayfire"; clicked => { root.selected_de = "10. Wayfire"; } }
+                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "11. bspwm"; description: "Binary space partitioning X11 architecture tracking strict layouts."; active: root.selected_de == "11. bspwm"; clicked => { root.selected_de = "11. bspwm"; } }
+                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "12. Budgie"; description: "Clean and elegant GTK interface prioritizing modern ergonomics."; active: root.selected_de == "12. Budgie"; clicked => { root.selected_de = "12. Budgie"; } }
+                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "13. Cosmic"; description: "Modern performance Rust workspace for absolute responsiveness."; active: root.selected_de == "13. Cosmic"; clicked => { root.selected_de = "13. Cosmic"; } }
+                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "14. LXDE"; description: "Fast, lightweight X11 environment tailored for legacy hardware."; active: root.selected_de == "14. LXDE"; clicked => { root.selected_de = "14. LXDE"; } }
+                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "15. LXQt"; description: "Blazing fast lightweight environment engineered on the Qt stack."; active: root.selected_de == "15. LXQt"; clicked => { root.selected_de = "15. LXQt"; } }
+                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "16. Mate"; description: "Classic GNOME 2 fork tracking legacy desktop layouts natively."; active: root.selected_de == "16. Mate"; clicked => { root.selected_de = "16. Mate"; } }
+                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "17. Openbox"; description: "Highly custom X11 window manager featuring extensive canvas styles."; active: root.selected_de == "17. Openbox"; clicked => { root.selected_de = "17. Openbox"; } }
+                            }
+                        }
+                    }
+
+                    HorizontalBox {
+                        alignment: center; spacing: 15px; padding-top: 10px;
+                        GlowingButton { text: "Back"; primary: false; clicked => { root.active_step = 5; } }
+                        GlowingButton { 
+                            text: "Next Step"; primary: true; 
+                            clicked => { 
+                                if (root.selected_de == "Choose your environment") {
+                                    root.error_message = "Please select a Desktop Environment before proceeding.";
+                                    root.show_error_popup = true;
+                                } else { root.active_step = 52; }
+                            } 
+                        }
+                    }
+                }
+
+                // =========================================================
+                // STEP 52: Boot Manager & Initialization (List with Descriptions)
+                // =========================================================
+                if (root.active_step == 52) : VerticalBox {
+                    alignment: center; spacing: 8px; padding-left: 40px; padding-right: 40px;
+                    Text { text: "Boot Manager Setup"; font-size: 20px; font-weight: 700; color: #A5F3FC; horizontal-alignment: center; }
+                    Text { text: "Select your bootloader and performance matrix configuration."; color: #9CA3AF; font-size: 12px; horizontal-alignment: center; }
+
+                    Rectangle {
+                        height: 180px; width: 100%; border-radius: 8px; border-width: 1px; border-color: #1F2937; background: #020617;
+                        ScrollView {
+                            width: 100%; height: 100%;
+                            VerticalBox {
+                                padding: 8px; spacing: 6px;
+                                RadioOption { title: "1. GRUB"; description: "Flexible multi-boot loader; supports auto BTRFS snapshots."; active: root.selected_boot == "1. GRUB"; clicked => { root.selected_boot = "1. GRUB"; } }
+                                RadioOption { title: "2. systemd-boot"; description: "Light minimalist EFI manager tracking kernel slots."; active: root.selected_boot == "2. systemd-boot"; clicked => { root.selected_boot = "2. systemd-boot"; } }
+                                RadioOption { title: "3. rEFInd"; description: "Rich graphical shell automatically identifying boot options."; active: root.selected_boot == "3. rEFInd"; clicked => { root.selected_boot = "3. rEFInd"; } }
+                                RadioOption { title: "4. Limine"; description: "Modern lightning-fast system deployed cleanly via limine.conf."; active: root.selected_boot == "4. Limine"; clicked => { root.selected_boot = "4. Limine"; } }
+                            }
+                        }
+                    }
+
+                    HorizontalBox {
+                        alignment: start; spacing: 8px;
+                        CheckBox { checked: root.perf_enabled; toggled => { root.perf_enabled = !root.perf_enabled; } }
+                        Text { text: "Apply Hyper-Performance Matrix (ZRAM, Fast I/O, EarlyOOM)"; color: #D1D5DB; font-size: 12px; font-weight: 600; vertical-alignment: center; }
+                    }
+
+                    Text { text: "WARNING: Proceeding will formally execute installation logic."; color: #EF4444; font-size: 11px; font-weight: 700; horizontal-alignment: center; }
+                    
+                    HorizontalBox {
+                        alignment: center; spacing: 15px; padding-top: 10px;
+                        GlowingButton { text: "Back"; primary: false; clicked => { root.active_step = 51; } }
                         
                         GlowingButton { 
                             text: "Initialize Protocol"; primary: true; 
                             clicked => { 
-                                if (root.selected_de == "Choose your environment") {
-                                    root.error_message = "Please select a Desktop Environment before initializing.";
-                                    root.show_error_popup = true;
-                                } else {
-                                    root.active_step = 6;
-                                    
-                                    // Successfully passing all 15 parameters explicitly to main.rs
-                                    InstallerLogic.start_install(
-                                        root.selected_disk, root.selected_mode, root.selected_part,
-                                        root.target_filesystem, root.replace_partition_path,
-                                        root.gui_root_part, root.gui_efi_part,
-                                        root.in_hostname, root.in_username, root.in_password,
-                                        root.in_root_password, root.selected_browser,
-                                        root.perf_enabled ? "Y" : "N", root.selected_de, root.selected_boot
-                                    );
-                                }
+                                root.active_step = 6;
+                                InstallerLogic.start_install(
+                                    root.selected_disk, root.selected_mode, root.selected_part,
+                                    root.target_filesystem, root.replace_partition_path,
+                                    root.gui_root_part, root.gui_efi_part,
+                                    root.in_hostname, root.in_username, root.in_password,
+                                    root.in_root_password, root.selected_browser,
+                                    root.perf_enabled ? "Y" : "N", root.selected_de, root.selected_boot
+                                );
                             } 
                         }
                     }
