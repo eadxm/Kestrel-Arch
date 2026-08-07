@@ -1,6 +1,11 @@
 #!/bin/bash
 set -e
 
+# =====================================================================
+# ⚠️ REPOSITORY CONFIGURATION ⚠️
+# =====================================================================
+GITHUB_REPO="eadxm/Kestrel-Arch"
+
 clear
 echo "=========================================================="
 echo "          KESTREL ARCH UNIVERSAL BOOTSTRAPPER             "
@@ -8,6 +13,19 @@ echo "=========================================================="
 echo "This script will deploy Kestrel Arch on a vanilla Arch Linux ISO."
 echo "An active internet connection is strictly required."
 echo ""
+
+# =====================================================================
+# SMART RAM GATEKEEPER & OOM PREVENTION (For 2GB / Low-RAM VMs)
+# =====================================================================
+TOTAL_RAM=$(free -m | awk '/^Mem:/{print $2}')
+if [ -n "$TOTAL_RAM" ] && [ "$TOTAL_RAM" -lt 4096 ]; then
+    echo "[SYSTEM CHECK] $TOTAL_RAM MB RAM detected. Allocating temporary 2GB swap space..."
+    fallocate -l 2G /tmp/swapfile 2>/dev/null || dd if=/dev/zero of=/tmp/swapfile bs=1M count=2048 status=none
+    chmod 600 /tmp/swapfile
+    mkswap /tmp/swapfile >/dev/null 2>&1
+    swapon /tmp/swapfile || true
+    echo "[INFO] Swap space successfully activated."
+fi
 
 echo "Select Deployment Interface:"
 echo " [1] Graphical Installer (Slint GUI & GParted on Wayland)"
@@ -21,7 +39,7 @@ done
 # Fetch Kestrel Backend Engine
 echo "=> Fetching Kestrel Backend Engine..."
 mkdir -p /usr/local/bin
-curl -sL "https://raw.githubusercontent.com/eadxm/Kestrel-Arch/refs/heads/main/airootfs/usr/local/bin/install.sh" -o /usr/local/bin/install.sh
+curl -sL "https://raw.githubusercontent.com/${GITHUB_REPO}/refs/heads/main/airootfs/usr/local/bin/install.sh" -o /usr/local/bin/install.sh
 chmod +x /usr/local/bin/install.sh
 
 if [ "$UI_CHOICE" = "1" ]; then
@@ -34,7 +52,7 @@ if [ "$UI_CHOICE" = "1" ]; then
     pacman-key --init >/dev/null 2>&1 || true
     pacman-key --populate archlinux >/dev/null 2>&1 || true
 
-    # The DIET UPGRADE: Upgrade system libraries safely, using wildcards to block ALL split firmware blobs
+    # The DIET UPGRADE: Upgrade system libraries safely, using wildcards to block ALL split firmware blobs & microcode
     echo "=> Upgrading base libraries safely..."
     pacman -Syu --ignore "linux,linux-firmware*,intel-ucode,amd-ucode,linux-api-headers,mkinitcpio" --noconfirm
     
@@ -47,7 +65,7 @@ if [ "$UI_CHOICE" = "1" ]; then
     pacman -Sc --noconfirm || true
     
     echo "=> Fetching Kestrel GUI Binary..."
-    curl -sL "https://github.com/eadxm/Kestrel-Arch/releases/latest/download/kestrel-gui" -o /usr/local/bin/kestrel-gui
+    curl -sL "https://github.com/${GITHUB_REPO}/releases/latest/download/kestrel-gui" -o /usr/local/bin/kestrel-gui
     chmod +x /usr/local/bin/kestrel-gui
 
     echo "=> Launching Engine..."
