@@ -41,6 +41,6 @@ jobs:
           body: "Automated build of the Kestrel Arch Slint GUI engine."
           files: /tmp/release_asset/kestrel-gui
           prerelease: false
-          overwrite: true
+          overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
