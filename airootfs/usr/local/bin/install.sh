@@ -687,9 +687,10 @@ else
         if pacstrap -K "$TARGET" --noconfirm "${VALIDATED_PACKAGES[@]}"; then 
             DOWNLOAD_SUCCESS=1; 
         else 
-            if [ "$NON_INTERACTIVE" = "1" ]; then exit 1; else
-                read -r -p "Install failed! Retry? (1=Yes, 2=Reboot): " FAIL_CHOICE; [ "$FAIL_CHOICE" = "2" ] && { umount -R "$TARGET"; reboot; }
-            fi
+            update_status "WARNING: Pacstrap failed (mirror timeout). Retrying in 2 seconds..."
+            echo "[WARNING] Pacstrap failed. Retrying in 2 seconds..."
+            sleep 2
+            # Indefinite retry without user input until DOWNLOAD_SUCCESS=1
         fi
     done
     trap 'error_handler $? $LINENO' ERR 
@@ -814,8 +815,8 @@ case $BOOT_CHOICE in
         ;;
     4)
         # Limine
-        mkdir -p "$TARGET/boot/EFI/BOOT"
-        cp "$TARGET/usr/share/limine/BOOTX64.EFI" "$TARGET/boot/EFI/BOOT/BOOTX64.EFI"
+        mkdir -p "$TARGET/boot/efi/EFI/BOOT"
+        cp "$TARGET/usr/share/limine/BOOTX64.EFI" "$TARGET/boot/efi/EFI/BOOT/BOOTX64.EFI"
         UCODE_STR=""
         [ -n "$UCODE_IMG" ] && UCODE_STR="module_path: boot():/${UCODE_IMG}\n    "
         
@@ -839,6 +840,9 @@ echo "=========================================================="
 echo "   KESTREL ARCH DEPLOYED! REBOOTING IN 5 SECONDS...       "
 echo "=========================================================="
 sleep 5
+
+# Force the VM or CD drive to eject the Arch ISO before rebooting
+eject /dev/sr0 || true
 
 if [ "$NON_INTERACTIVE" = "1" ]; then
     trap - ERR; umount -R "$TARGET" 2>/dev/null || true; exit 0
