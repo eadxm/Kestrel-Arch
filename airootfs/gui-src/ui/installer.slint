@@ -7,7 +7,8 @@ import "./fonts/Geomini.ttf";
 import "./fonts/CascadiaCode.ttf";
 
 export global InstallerLogic {
-    callback start_install(string, string, string, string, string, string, string, string, string, string, string, string, string);
+    // 15 parameters to match main.rs explicitly
+    callback start_install(string, string, string, string, string, string, string, string, string, string, string, string, string, string, string);
     callback poweroff_system();
     callback reboot_system();
     
@@ -145,6 +146,10 @@ export component InstallerWindow inherits Window {
     property <string> target_filesystem: "ext4";
     property <string> replace_partition_path: "";
     
+    // Specific GUI Mount Point variables
+    property <string> gui_root_part: "/dev/sda2"; // Bound to whatever the user selects in the table
+    property <string> gui_efi_part: "/dev/sda1";  // Bound to whatever the user selects in the table
+    
     property <string> in_hostname: "";
     property <string> in_username: "";
     property <string> in_password: "";
@@ -248,7 +253,6 @@ export component InstallerWindow inherits Window {
                     Text { text: "Select your Wi-Fi network from the list below to proceed with Online installation."; color: #9CA3AF; font-size: 12px; horizontal-alignment: center; }
                     Rectangle { height: 5px; } 
 
-                    // List view layout for networks instead of a dropdown
                     Rectangle {
                         height: 160px; width: 100%; border-radius: 8px; border-width: 1px; border-color: #1F2937; background: #020617;
                         ScrollView {
@@ -256,7 +260,6 @@ export component InstallerWindow inherits Window {
                             VerticalBox {
                                 padding: 8px; spacing: 4px;
                                 
-                                // Dynamic iteration over available networks list
                                 for net in root.available_networks : Rectangle {
                                     height: 35px; border-radius: 4px;
                                     background: root.selected_network == net ? #06B6D420 : (net_touch.has-hover ? #1F2937 : transparent);
@@ -323,7 +326,7 @@ export component InstallerWindow inherits Window {
                 }
 
                 // =========================================================
-                // STEP 30: Partitioning Strategy Window (Separate Window!)
+                // STEP 30: Partitioning Strategy Window
                 // =========================================================
                 if (root.active_step == 30) : VerticalBox {
                     alignment: center; spacing: 15px; padding-left: 40px; padding-right: 40px;
@@ -616,9 +619,12 @@ export component InstallerWindow inherits Window {
                                     root.show_error_popup = true;
                                 } else {
                                     root.active_step = 6;
+                                    
+                                    // Successfully passing all 15 parameters explicitly to main.rs
                                     InstallerLogic.start_install(
                                         root.selected_disk, root.selected_mode, root.selected_part,
                                         root.target_filesystem, root.replace_partition_path,
+                                        root.gui_root_part, root.gui_efi_part,
                                         root.in_hostname, root.in_username, root.in_password,
                                         root.in_root_password, root.selected_browser,
                                         root.perf_enabled ? "Y" : "N", root.selected_de, root.selected_boot
@@ -630,7 +636,7 @@ export component InstallerWindow inherits Window {
                 }
 
                 // =========================================================
-                // STEP 6: Deployment Execution Screen
+                // STEP 6: Deployment Execution Screen (Crisp TextEdit Log)
                 // =========================================================
                 if (root.active_step == 6) : VerticalBox {
                     alignment: center; spacing: 15px; padding-left: 50px; padding-right: 50px;
@@ -649,7 +655,7 @@ export component InstallerWindow inherits Window {
                     if (root.show_console) : Rectangle {
                         background: #000000; border-radius: 8px; border-width: 1px; border-color: #1F2937; height: 220px; width: 100%; clip: true; 
                         
-                        // Replaced ScrollView+Text with TextEdit for crisp, native text rendering
+                        // Implemented TextEdit to prevent blurriness and strange pixel-rendering 
                         TextEdit {
                             width: 100%;
                             height: 100%;
