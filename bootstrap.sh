@@ -36,7 +36,7 @@ if [ "$UI_CHOICE" = "1" ]; then
 
     # The DIET UPGRADE: Upgrade system libraries safely, using wildcards to block ALL split firmware blobs
     echo "=> Upgrading base libraries safely..."
-    pacman -Syu --ignore "linux,linux-firmware*,linux-api-headers,mkinitcpio" --noconfirm
+    pacman -Syu --ignore "linux,linux-firmware*,intel-ucode,amd-ucode,linux-api-headers,mkinitcpio" --noconfirm
     
     # Install Wayland, GParted, and fonts
     echo "=> Installing Wayland and GParted..."
