@@ -42,13 +42,22 @@ if [ "$UI_CHOICE" = "1" ]; then
     pacman-key --init >/dev/null 2>&1 || true
     pacman-key --populate archlinux >/dev/null 2>&1 || true
 
-    # Sync database (no full upgrade to prevent partial upgrade conflicts)
+    echo "=> Synchronizing package database to ISO build date..."
+    # Extract the exact build date of the live ISO (e.g., 2024.01.01)
+    ISO_DATE=$(grep BUILD_ID /etc/os-release | cut -d'=' -f2 | tr -d '"')
+    # Format the date for the Arch Archive URL (e.g., 2024/01/01)
+    ARCHIVE_DATE=${ISO_DATE//./\/}
+    
+    # Point pacman mirrors to the exact date the ISO was created
+    echo "Server = https://archive.archlinux.org/repos/${ARCHIVE_DATE}/\$repo/os/\$arch" > /etc/pacman.d/mirrorlist
+    
+    # Sync database cleanly from the time machine
     pacman -Sy --noconfirm
     
-    # SURGICAL STRIKE: Install glibc and gcc-libs alongside GUI components to prevent library mismatch
-    pacman -S --noconfirm --overwrite "*" glibc gcc-libs cage wayland ttf-dejavu gparted polkit ttf-liberation noto-fonts pciutils
+    # Install GUI components completely safely (No overwrite flags needed!)
+    pacman -S --noconfirm cage wayland ttf-dejavu gparted polkit ttf-liberation noto-fonts pciutils
     
-    # Instantly free up ~140 MB of RAM (suppressed harmless file descriptor warnings)
+    # Instantly free up ~140 MB of RAM
     echo "=> Clearing package cache to free memory..."
     pacman -Sc --noconfirm || true
     
