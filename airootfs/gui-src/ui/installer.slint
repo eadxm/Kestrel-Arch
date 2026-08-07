@@ -6,6 +6,16 @@ import { ComboBox, ProgressIndicator, VerticalBox, HorizontalBox, LineEdit, Chec
 import "./fonts/Geomini.ttf";
 import "./fonts/CascadiaCode.ttf";
 
+// Struct to hold partition data sent from Rust
+export struct PartitionData {
+    name: string,
+    fstype: string,
+    label: string,
+    mountpoint: string,
+    size: string,
+    color_hex: color,
+}
+
 export global InstallerLogic {
     // 15 parameters to match main.rs explicitly
     callback start_install(string, string, string, string, string, string, string, string, string, string, string, string, string, string, string);
@@ -15,6 +25,10 @@ export global InstallerLogic {
     callback check_network_and_proceed(string); 
     callback rescan_wifi();
     callback connect_wifi(string, string); 
+    
+    // GParted Callback & Data binding
+    callback launch_gparted(string);
+    in-out property <[PartitionData]> current_partitions;
     
     in property <float> progress: 0.0;
     in property <string> status_text: "Ready to deploy.";
@@ -341,7 +355,6 @@ export component InstallerWindow inherits Window {
                         ComboBox { model: root.available_disks; current-value: root.selected_disk; selected(val) => { root.selected_disk = val; } height: 35px; }
                     }
 
-                    // Partition Visualizer Bar added here
                     PartitionVisualizer { disk_name: root.selected_disk; }
                     
                     HorizontalBox {
@@ -433,7 +446,6 @@ export component InstallerWindow inherits Window {
                     alignment: center; spacing: 10px; padding-left: 60px; padding-right: 60px;
                     Text { text: "Replace Partition"; font-size: 20px; font-weight: 700; color: #A5F3FC; horizontal-alignment: center; }
 
-                    // Partition Visualizer Bar added here so user knows partition paths
                     PartitionVisualizer { disk_name: root.selected_disk; }
 
                     VerticalBox {
@@ -467,7 +479,7 @@ export component InstallerWindow inherits Window {
                 }
 
                 // =========================================================
-                // STEP 33: Advanced Partition Manager Window (CachyOS Style)
+                // STEP 33: Advanced Partition Manager Window (GParted Data Loop)
                 // =========================================================
                 if (root.active_step == 33) : VerticalBox {
                     alignment: start; spacing: 12px; padding-left: 10px; padding-right: 10px;
@@ -479,27 +491,10 @@ export component InstallerWindow inherits Window {
                             Text { text: "Storage device:"; color: #D1D5DB; font-size: 13px; font-weight: 600; vertical-alignment: center; }
                             ComboBox { model: root.available_disks; current-value: root.selected_disk; selected(val) => { root.selected_disk = val; } width: 280px; height: 32px; }
                         }
-                        GlowingButton { text: "Revert Changes"; primary: false; width: 120px; height: 32px; clicked => {} }
-                    }
-
-                    VerticalBox {
-                        spacing: 6px;
-                        Rectangle {
-                            width: 100%; height: 26px; border-radius: 4px; clip: true; background: #1F2937;
-                            HorizontalLayout {
-                                Rectangle { width: 75%; background: #EF4444; }
-                                Rectangle { width: 25%; background: #F59E0B; }
-                            }
-                        }
-                        HorizontalBox {
-                            spacing: 15px;
-                            HorizontalBox { spacing: 4px; Rectangle { width: 10px; height: 10px; background: #EF4444; border-radius: 2px; } Text { text: "New partition (1.40 TiB XFS)"; color: #9CA3AF; font-size: 10px; } }
-                            HorizontalBox { spacing: 4px; Rectangle { width: 10px; height: 10px; background: #F59E0B; border-radius: 2px; } Text { text: "New partition (425.42 GiB XFS)"; color: #9CA3AF; font-size: 10px; } }
-                        }
                     }
 
                     Rectangle {
-                        border-width: 1px; border-color: #06B6D4; border-radius: 6px; background: #020617; height: 200px;
+                        border-width: 1px; border-color: #06B6D4; border-radius: 6px; background: #020617; height: 260px;
                         VerticalBox {
                             Rectangle {
                                 background: #0F172A; height: 30px;
@@ -515,26 +510,15 @@ export component InstallerWindow inherits Window {
                             ScrollView {
                                 VerticalBox {
                                     padding: 8px; spacing: 4px;
-                                    Rectangle {
+                                    for part in InstallerLogic.current_partitions : Rectangle {
                                         height: 28px; background: #1F293750; border-radius: 3px;
                                         HorizontalBox {
                                             padding-left: 8px; padding-right: 8px; spacing: 10px;
-                                            HorizontalBox { spacing: 6px; width: 140px; alignment: start; Rectangle { width: 10px; height: 10px; background: #EF4444; border-radius: 2px; } Text { text: "New Partition"; color: #D1D5DB; font-size: 12px; vertical-alignment: center; } }
-                                            Text { text: "XFS"; width: 80px; color: #D1D5DB; font-size: 12px; vertical-alignment: center; }
-                                            Text { text: ""; width: 110px; color: #D1D5DB; font-size: 12px; vertical-alignment: center; }
-                                            Text { text: ""; width: 90px; color: #D1D5DB; font-size: 12px; vertical-alignment: center; }
-                                            Text { text: "1.40 TiB"; color: #D1D5DB; font-size: 12px; vertical-alignment: center; horizontal-alignment: right; }
-                                        }
-                                    }
-                                    Rectangle {
-                                        height: 28px; background: transparent; border-radius: 3px;
-                                        HorizontalBox {
-                                            padding-left: 8px; padding-right: 8px; spacing: 10px;
-                                            HorizontalBox { spacing: 6px; width: 140px; alignment: start; Rectangle { width: 10px; height: 10px; background: #F59E0B; border-radius: 2px; } Text { text: "New Partition"; color: #D1D5DB; font-size: 12px; vertical-alignment: center; } }
-                                            Text { text: "XFS"; width: 80px; color: #D1D5DB; font-size: 12px; vertical-alignment: center; }
-                                            Text { text: ""; width: 110px; color: #D1D5DB; font-size: 12px; vertical-alignment: center; }
-                                            Text { text: ""; width: 90px; color: #D1D5DB; font-size: 12px; vertical-alignment: center; }
-                                            Text { text: "425.42 GiB"; color: #D1D5DB; font-size: 12px; vertical-alignment: center; horizontal-alignment: right; }
+                                            HorizontalBox { spacing: 6px; width: 140px; alignment: start; Rectangle { width: 10px; height: 10px; background: part.color_hex; border-radius: 2px; } Text { text: part.name; color: #D1D5DB; font-size: 12px; vertical-alignment: center; } }
+                                            Text { text: part.fstype; width: 80px; color: #D1D5DB; font-size: 12px; vertical-alignment: center; }
+                                            Text { text: part.label; width: 110px; color: #D1D5DB; font-size: 12px; vertical-alignment: center; }
+                                            Text { text: part.mountpoint; width: 90px; color: #D1D5DB; font-size: 12px; vertical-alignment: center; }
+                                            Text { text: part.size; color: #D1D5DB; font-size: 12px; vertical-alignment: center; horizontal-alignment: right; }
                                         }
                                     }
                                 }
@@ -544,12 +528,10 @@ export component InstallerWindow inherits Window {
 
                     HorizontalBox {
                         alignment: space-between;
-                        GlowingButton { text: "New Partition Table"; primary: false; width: 140px; height: 32px; clicked => {} }
-                        HorizontalBox {
-                            spacing: 8px;
-                            GlowingButton { text: "Create"; primary: false; width: 80px; height: 32px; clicked => {} }
-                            GlowingButton { text: "Edit"; primary: false; width: 80px; height: 32px; clicked => {} }
-                            GlowingButton { text: "Delete"; primary: false; width: 80px; height: 32px; clicked => {} }
+                        Text { text: "Use GParted to visually format your layout, then close it to refresh."; color: #F59E0B; font-size: 11px; vertical-alignment: center; }
+                        GlowingButton { 
+                            text: "Launch GParted"; primary: false; width: 140px; height: 32px; 
+                            clicked => { InstallerLogic.launch_gparted(root.selected_disk); } 
                         }
                     }
 
