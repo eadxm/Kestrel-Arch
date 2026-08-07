@@ -34,15 +34,15 @@ if [ "$UI_CHOICE" = "1" ]; then
     pacman-key --init >/dev/null 2>&1 || true
     pacman-key --populate archlinux >/dev/null 2>&1 || true
 
-    # Clean system upgrade to prevent glibc library suicide
-    echo "=> Upgrading base system safely..."
-    pacman -Syu --noconfirm
+    # The DIET UPGRADE: Upgrade system libraries to prevent glibc crash, but IGNORE massive kernel/firmware blobs
+    echo "=> Upgrading base libraries safely..."
+    pacman -Syu --ignore linux,linux-firmware,linux-api-headers,mkinitcpio --noconfirm
     
     # Install Wayland, GParted, and fonts
     echo "=> Installing Wayland and GParted..."
     pacman -S --noconfirm cage wayland ttf-dejavu gparted polkit ttf-liberation noto-fonts pciutils
     
-    # Instantly dump package cache to free up ~200MB of RAM immediately
+    # Instantly dump package cache to free memory
     echo "=> Clearing package cache to free memory..."
     pacman -Sc --noconfirm || true
     
