@@ -45,12 +45,12 @@ if [ "$UI_CHOICE" = "1" ]; then
     # Sync database (no full upgrade to prevent partial upgrade conflicts)
     pacman -Sy --noconfirm
     
-    # Install necessary GUI components for a vanilla Arch ISO, overriding RAM conflicts
-    pacman -S --noconfirm --overwrite "*" cage wayland ttf-dejavu gparted polkit ttf-liberation noto-fonts pciutils
+    # SURGICAL STRIKE: Install glibc and gcc-libs alongside GUI components to prevent library mismatch
+    pacman -S --noconfirm --overwrite "*" glibc gcc-libs cage wayland ttf-dejavu gparted polkit ttf-liberation noto-fonts pciutils
     
-    # Instantly free up ~140 MB of RAM by deleting cached installer packages
+    # Instantly free up ~140 MB of RAM (suppressed harmless file descriptor warnings)
     echo "=> Clearing package cache to free memory..."
-    pacman -Sc --noconfirm
+    pacman -Sc --noconfirm || true
     
     echo "=> Fetching Kestrel GUI Binary..."
     curl -sL "https://github.com/${GITHUB_REPO}/releases/latest/download/kestrel-gui" -o /usr/local/bin/kestrel-gui
