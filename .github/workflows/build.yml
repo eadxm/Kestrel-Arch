@@ -38,10 +38,11 @@ jobs:
           pacman -U 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst' 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst' --noconfirm
           echo -e "\n[chaotic-aur]\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> /etc/pacman.conf
 
+          # UPDATED: Added btrfs-progs, dosfstools, and e2fsprogs to the offline payload
           pacman -Syw --cachedir airootfs/opt/offline_cache --dbpath /tmp/empty_db --noconfirm \
             base hunspell hunspell-en_us linux-cachyos linux-cachyos-headers linux linux-headers linux-firmware scx-scheds switcheroo-control efibootmgr os-prober ntfs-3g networkmanager iwd bluez bluez-utils blueman \
             pipewire pipewire-pulse wireplumber brightnessctl flatpak xorg-server sddm sudo zram-generator earlyoom \
-            reflector ttf-dejavu ttf-liberation noto-fonts noto-fonts-emoji curl chaotic-keyring chaotic-mirrorlist parted \
+            reflector ttf-dejavu ttf-liberation noto-fonts noto-fonts-emoji curl chaotic-keyring chaotic-mirrorlist parted btrfs-progs dosfstools e2fsprogs \
             amd-ucode intel-ucode nvidia nvidia-utils nvidia-prime xf86-video-amdgpu intel-media-driver \
             grub refind limine \
             hyprland waybar kitty foot rofi-wayland xdg-desktop-portal-hyprland polkit-kde-agent thunar gvfs \
@@ -68,7 +69,8 @@ jobs:
           cp -r /usr/share/archiso/configs/releng /tmp/kestrel_profile
           echo -e "\n[chaotic-aur]\nSigLevel = Optional TrustAll\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> /tmp/kestrel_profile/pacman.conf
           
-          echo -e "zsh\ncage\nkitty\nmesa\nttf-dejavu\npolkit\npciutils\nxorg-xwayland" >> /tmp/kestrel_profile/packages.x86_64
+          # UPDATED: Added parted, btrfs-progs, dosfstools, ntfs-3g, and e2fsprogs directly to the Live ISO
+          echo -e "zsh\ncage\nkitty\nmesa\nttf-dejavu\npolkit\npciutils\nxorg-xwayland\nparted\nbtrfs-progs\ndosfstools\nntfs-3g\ne2fsprogs" >> /tmp/kestrel_profile/packages.x86_64
 
           mkdir -p /tmp/kestrel_profile/airootfs/usr/local/bin
           mkdir -p /tmp/kestrel_profile/airootfs/root
