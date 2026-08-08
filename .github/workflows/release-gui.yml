@@ -13,8 +13,11 @@ jobs:
       contents: write
 
     steps:
+      # ADDED: fetch-depth: 0 so Git can read your previous commits for the changelog
       - name: Checkout Repository
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Install Rust Stable & Build Dependencies
         run: |
@@ -33,26 +36,45 @@ jobs:
           cp airootfs/gui-src/target/release/kestrel-gui /tmp/release_asset/kestrel-gui
           chmod +x /tmp/release_asset/kestrel-gui
 
-      - name: Publish to GitHub Releases
+      - name: Publish to GitHub Releases with Automated Notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 1. Generate a brand new, unique tag based on the exact time
+          # 1. Generate Tag
           RELEASE_TAG="build-$(date +'%Y.%m.%d-%H%M%S')"
           
-          # 2. Find the previous release and nuke it so the repo stays clean
+          # 2. Extract Changelog BEFORE deleting the old tag
           PREV_TAG=$(gh release view --json tagName -q .tagName 2>/dev/null || true)
+          git config --global --add safe.directory '*' || true
+          
+          if [ -n "$PREV_TAG" ] && git rev-parse "$PREV_TAG" >/dev/null 2>&1; then
+            CHANGELOG=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s" 2>/dev/null)
+          else
+            CHANGELOG=$(git log -5 --pretty=format:"- %s" 2>/dev/null)
+          fi
+          
+          [ -z "$CHANGELOG" ] && CHANGELOG="- Minor updates and stability improvements."
+          
+          # 3. Create the Release Notes Markdown file
+          cat <<EOF > release_notes.md
+### 🚀 What's Improved or Fixed
+$CHANGELOG
+
+---
+*Automated build of the Kestrel Arch Slint GUI engine.*
+EOF
+          
+          # 4. Clean up old release
           if [ -n "$PREV_TAG" ]; then
             echo "=> Cleaning up old release: $PREV_TAG"
             gh release delete "$PREV_TAG" --yes --cleanup-tag 2>/dev/null || true
             git push origin --delete "$PREV_TAG" 2>/dev/null || true
           fi
           
-          # 3. Create the brand new release and force the "Latest" badge onto it
+          # 5. Create fresh GitHub Release using the generated notes
           echo "=> Creating fresh GitHub Release: $RELEASE_TAG"
-          
           gh release create "$RELEASE_TAG" \
             --title "Kestrel GUI - Latest Build" \
-            --notes "Automated build of the Kestrel Arch Slint GUI engine." \
+            --notes-file release_notes.md \
             --latest \
             /tmp/release_asset/kestrel-gui
