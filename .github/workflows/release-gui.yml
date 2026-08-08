@@ -55,14 +55,14 @@ jobs:
           
           [ -z "$CHANGELOG" ] && CHANGELOG="- Minor updates and stability improvements."
           
-          # 3. Create the Release Notes Markdown file
-          cat <<EOF > release_notes.md
-### 🚀 What's Improved or Fixed
-$CHANGELOG
-
----
-*Automated build of the Kestrel Arch Slint GUI engine.*
-EOF
+          # 3. Create the Release Notes Markdown file safely
+          {
+            echo "### 🚀 What's Improved or Fixed"
+            echo "$CHANGELOG"
+            echo ""
+            echo "---"
+            echo "*Automated build of the Kestrel Arch Slint GUI engine.*"
+          } > release_notes.md
           
           # 4. Clean up old release
           if [ -n "$PREV_TAG" ]; then
