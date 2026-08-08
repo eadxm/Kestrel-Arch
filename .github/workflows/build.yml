@@ -160,9 +160,9 @@ jobs:
           git config --global --add safe.directory '*' || true
           
           if [ -n "$PREV_TAG" ] && git rev-parse "$PREV_TAG" >/dev/null 2>&1; then
-            CHANGELOG=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s" 2>/dev/null)
+            CHANGELOG=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s" -- . ':!.github' 2>/dev/null)
           else
-            CHANGELOG=$(git log -5 --pretty=format:"- %s" 2>/dev/null)
+            CHANGELOG=$(git log -5 --pretty=format:"- %s" -- . ':!.github' 2>/dev/null)
           fi
           
           [ -z "$CHANGELOG" ] && CHANGELOG="- Routine updates and maintenance."
