@@ -1,9 +1,11 @@
-name: Build Kestrel Arch ISO
+name: Build Kestrel Arch ISO (Offline)
 
 on:
   push:
     branches: [ "main" ]
   workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *' # Runs automatically every day at midnight UTC
 
 jobs:
   build-archiso:
@@ -84,6 +86,9 @@ jobs:
           sed 's/\r$//' airootfs/usr/local/bin/install.sh > /tmp/kestrel_profile/airootfs/usr/local/bin/install.sh
           cp airootfs/gui-src/target/release/kestrel-gui /tmp/kestrel_profile/airootfs/usr/local/bin/kestrel-gui
           
+          # Renames the ISO file output to Kestrel-Arch(offline)-YYYY-MM-DD-x86_64.iso
+          sed -i 's/^iso_name=.*/iso_name="Kestrel-Arch(offline)"/' /tmp/kestrel_profile/profiledef.sh
+          
           sed -i '/file_permissions=(/a \  ["/usr/local/bin/install.sh"]="0:0:755"\n  ["/usr/local/bin/kestrel-gui"]="0:0:755"' /tmp/kestrel_profile/profiledef.sh
           
           sed -i 's/^compressor=.*/compressor="zstd"/' /tmp/kestrel_profile/profiledef.sh
@@ -112,7 +117,7 @@ jobs:
       - name: Upload ISO Artifact
         uses: actions/upload-artifact@v7
         with:
-          name: Kestrel-Arch-ISO
+          name: Kestrel-Arch-ISO-Offline
           path: out/*.iso
 
       - name: Deploy to SourceForge Mirrors
@@ -162,7 +167,7 @@ jobs:
           [ -z "$CHANGELOG" ] && CHANGELOG="- Routine updates and maintenance."
           
           {
-            echo "### 🦅 Kestrel Arch - Latest Deployment"
+            echo "### 🦅 Kestrel Arch - Latest Deployment (Offline Installer)"
             echo ""
             echo "**Note:** Due to GitHub's 2GB file size limit, the ISO is hosted on our high-speed global mirrors."
             echo "✅ **[Download $ISO_FILE Here]($DOWNLOAD_URL)**"
@@ -183,7 +188,7 @@ jobs:
             git push origin "$RELEASE_TAG" --force
             
             gh release edit "$RELEASE_TAG" \
-              --title "Kestrel Arch Latest ISO" \
+              --title "Kestrel Arch Latest Offline ISO" \
               --notes-file release_notes.md
           else
             echo "=> Creating rolling release: $RELEASE_TAG"
@@ -191,7 +196,7 @@ jobs:
             git push origin "$RELEASE_TAG"
             
             gh release create "$RELEASE_TAG" \
-              --title "Kestrel Arch Latest ISO" \
+              --title "Kestrel Arch Latest Offline ISO" \
               --notes-file release_notes.md \
               --latest
           fi
