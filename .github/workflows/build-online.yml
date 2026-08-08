@@ -30,6 +30,12 @@ jobs:
           pacman -Sy --noconfirm archlinux-keyring
           pacman -Su --noconfirm
           
+          # FIX: Re-added Chaotic AUR keys so mkarchiso can find the mirrorlist
+          pacman-key --init
+          pacman-key --recv-key 3056513887B78AEB --keyserver hkps://keyserver.ubuntu.com
+          pacman-key --lsign-key 3056513887B78AEB
+          pacman -U 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst' 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst' --noconfirm
+          
           pacman -S --noconfirm archiso wget gawk mtools dosfstools erofs-utils squashfs-tools pacman-contrib rustup base-devel cmake pkgconf freetype2 fontconfig libx11 libxkbcommon libxcb wayland openssh rsync github-cli git
           
           rustup default stable
