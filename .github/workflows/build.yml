@@ -127,19 +127,24 @@ jobs:
           echo "=> Pushing $ISO_FILE to SourceForge via secure rsync..."
           rsync -avP -e ssh "$ISO_FILE" "${SF_USERNAME}@frs.sourceforge.net:/home/frs/project/${SF_PROJECT}/"
 
-      - name: Generate Automated GitHub Release
+      - name: Generate or Update GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SF_PROJECT: "kestrel-arch"
         run: |
           ISO_FILE=$(basename $(ls out/*.iso | head -n 1))
-          RELEASE_TAG="v$(date +'%Y.%m.%d-%H%M')"
+          RELEASE_TAG="latest"
           
-          echo "=> Crafting GitHub Release $RELEASE_TAG..."
+          echo "=> Cleaning up old release/tag if it exists..."
+          gh release delete "$RELEASE_TAG" --yes --cleanup-tag 2>/dev/null || true
+          git tag -d "$RELEASE_TAG" 2>/dev/null || true
+          git push origin --delete "$RELEASE_TAG" 2>/dev/null || true
+          
+          echo "=> Creating fresh GitHub Release for $RELEASE_TAG..."
           DOWNLOAD_URL="https://downloads.sourceforge.net/project/${SF_PROJECT}/${ISO_FILE}"
           
-          NOTES="### Kestrel Arch - Automated Deployment\n\n**Note:** Due to GitHub's 2GB file size limit, the ISO is hosted on our high-speed global mirrors.\n\n✅ **[Download $ISO_FILE Here]($DOWNLOAD_URL)**\n\n*Built automatically via GitHub Actions.*"
+          NOTES="### 🦅 Kestrel Arch - Latest Deployment\n\n**Note:** Due to GitHub's 2GB file size limit, the ISO is hosted on our high-speed global mirrors.\n\n✅ **[Download $ISO_FILE Here]($DOWNLOAD_URL)**\n\n*Updated automatically via GitHub Actions.*"
           
           gh release create "$RELEASE_TAG" \
-            --title "Kestrel Arch Release $RELEASE_TAG" \
+            --title "Kestrel Arch Latest Build" \
             --notes "$NOTES"
