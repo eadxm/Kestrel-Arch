@@ -8,6 +8,11 @@ on:
 jobs:
   build-archiso:
     runs-on: ubuntu-latest
+    
+    # REQUIRED: Grants the workflow permission to delete and create releases/tags
+    permissions:
+      contents: write
+      
     container:
       image: archlinux:latest
       options: --privileged
@@ -128,19 +133,25 @@ jobs:
           # DIRECT FIX: Ignore StrictHostKeyChecking to completely bypass the DNS round-robin issue
           rsync -avP -e "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" "$ISO_FILE" "${SF_USERNAME}@frs.sourceforge.net:/home/frs/project/${SF_PROJECT}/"
 
-      - name: Generate or Update GitHub Release
+      - name: Generate Fresh GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SF_PROJECT: "kestrel-arch"
         run: |
           ISO_FILE=$(basename $(ls out/*.iso | head -n 1))
-          RELEASE_TAG="latest"
           
-          echo "=> Cleaning up old release/tag if it exists..."
-          gh release delete "$RELEASE_TAG" --yes --cleanup-tag 2>/dev/null || true
-          git tag -d "$RELEASE_TAG" 2>/dev/null || true
-          git push origin --delete "$RELEASE_TAG" 2>/dev/null || true
+          # 1. Generate a brand new, unique tag based on the exact time
+          RELEASE_TAG="build-$(date +'%Y.%m.%d-%H%M%S')"
           
+          # 2. Find the previous release and nuke it so the repo stays clean
+          PREV_TAG=$(gh release view --json tagName -q .tagName 2>/dev/null || true)
+          if [ -n "$PREV_TAG" ]; then
+            echo "=> Cleaning up old release: $PREV_TAG"
+            gh release delete "$PREV_TAG" --yes --cleanup-tag 2>/dev/null || true
+            git push origin --delete "$PREV_TAG" 2>/dev/null || true
+          fi
+          
+          # 3. Create the brand new release and force the "Latest" badge onto it
           echo "=> Creating fresh GitHub Release for $RELEASE_TAG..."
           DOWNLOAD_URL="https://downloads.sourceforge.net/project/${SF_PROJECT}/${ISO_FILE}"
           
@@ -148,4 +159,5 @@ jobs:
           
           gh release create "$RELEASE_TAG" \
             --title "Kestrel Arch Latest Build" \
-            --notes "$NOTES"
+            --notes "$NOTES" \
+            --latest
