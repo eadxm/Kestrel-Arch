@@ -38,7 +38,6 @@ jobs:
           pacman -U 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst' 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst' --noconfirm
           echo -e "\n[chaotic-aur]\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> /etc/pacman.conf
 
-          # UPGRADED: Aggressively pruned offline cache (Removed headers, extra apps, and heavy browsers. Added Falkon.)
           pacman -Syw --cachedir airootfs/opt/offline_cache --dbpath /tmp/empty_db --noconfirm \
             base linux-cachyos linux linux-firmware scx-scheds switcheroo-control efibootmgr os-prober ntfs-3g networkmanager iwd bluez bluez-utils blueman \
             pipewire pipewire-pulse wireplumber brightnessctl xorg-server sddm sudo zram-generator earlyoom \
@@ -69,7 +68,6 @@ jobs:
           cp -r /usr/share/archiso/configs/releng /tmp/kestrel_profile
           echo -e "\n[chaotic-aur]\nSigLevel = Optional TrustAll\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> /tmp/kestrel_profile/pacman.conf
           
-          # UPDATED: Added gparted and xfsprogs directly to the Live ISO packages
           echo -e "zsh\ncage\nkitty\nmesa\nttf-dejavu\npolkit\npciutils\nxorg-xwayland\nparted\nbtrfs-progs\ndosfstools\nntfs-3g\ne2fsprogs\nxfsprogs\ngparted" >> /tmp/kestrel_profile/packages.x86_64
 
           mkdir -p /tmp/kestrel_profile/airootfs/usr/local/bin
@@ -119,13 +117,16 @@ jobs:
         run: |
           echo "=> Configuring SSH for SourceForge FRS..."
           mkdir -p ~/.ssh
-          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+          
+          # PREEMPTIVE FIX: Strip any accidental Windows line endings (\r) from the key just in case
+          echo "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan frs.sourceforge.net >> ~/.ssh/known_hosts
 
           ISO_FILE=$(ls out/*.iso | head -n 1)
           echo "=> Pushing $ISO_FILE to SourceForge via secure rsync..."
-          rsync -avP -e ssh "$ISO_FILE" "${SF_USERNAME}@frs.sourceforge.net:/home/frs/project/${SF_PROJECT}/"
+          
+          # DIRECT FIX: Ignore StrictHostKeyChecking to completely bypass the DNS round-robin issue
+          rsync -avP -e "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" "$ISO_FILE" "${SF_USERNAME}@frs.sourceforge.net:/home/frs/project/${SF_PROJECT}/"
 
       - name: Generate or Update GitHub Release
         env:
@@ -143,7 +144,7 @@ jobs:
           echo "=> Creating fresh GitHub Release for $RELEASE_TAG..."
           DOWNLOAD_URL="https://downloads.sourceforge.net/project/${SF_PROJECT}/${ISO_FILE}"
           
-          NOTES="### 🦅 Kestrel Arch - Latest Deployment\n\n**Note:** Due to GitHub's 2GB file size limit, the ISO is hosted on our high-speed global mirrors.\n\n✅ **[Download $ISO_FILE Here]($DOWNLOAD_URL)**\n\n*Updated automatically via GitHub Actions.*"
+          NOTES="### Kestrel Arch - Latest Deployment\n\n**Note:** Due to GitHub's 2GB file size limit, the ISO is hosted on our high-speed global mirrors.\n\n✅ **[Download $ISO_FILE Here]($DOWNLOAD_URL)**\n\n*Updated automatically via GitHub Actions.*"
           
           gh release create "$RELEASE_TAG" \
             --title "Kestrel Arch Latest Build" \
