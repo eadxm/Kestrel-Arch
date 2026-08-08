@@ -161,8 +161,8 @@ Contributions are highly encouraged! To tweak the UI or add new features to the 
 Compile and run the UI directly on your host machine to test layout changes without triggering destructive disk-formatting bash scripts.
 
 ```bash
-git clone https://github.com/yourusername/kestrel-arch.git
-cd kestrel-arch
+git clone https://github.com/eadxm/Kestrel-Arch.git
+cd Kestrel-Arch
 cargo run --release
 ```
 
