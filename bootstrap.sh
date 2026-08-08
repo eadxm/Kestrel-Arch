@@ -61,9 +61,9 @@ if [ "$UI_CHOICE" = "1" ]; then
     pacman-key --init >/dev/null 2>&1 || true
     pacman-key --populate archlinux >/dev/null 2>&1 || true
 
-    # The DIET UPGRADE: Upgrade system libraries safely, using wildcards to block ALL split firmware blobs & useless microcode
+    # The DIET UPGRADE: Upgrade system libraries safely, using wildcards to block ALL unnecessary environment bloat
     echo "=> Upgrading base libraries safely..."
-    pacman -Syu --ignore "linux,linux-firmware*,intel-ucode,amd-ucode,linux-api-headers,mkinitcpio" --noconfirm
+    pacman -Syu --ignore "linux,linux-firmware*,intel-ucode,amd-ucode,linux-api-headers,mkinitcpio,sof-firmware,open-vm-tools,virtualbox-guest-utils-nox,vim,vim-runtime,zsh,openvpn,openconnect,man-db,man-pages,nmap,tcpdump,python*" --noconfirm
     
     # Install Wayland, GParted, and fonts
     echo "=> Installing Wayland and GParted..."
