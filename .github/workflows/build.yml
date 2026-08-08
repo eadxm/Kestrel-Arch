@@ -38,17 +38,17 @@ jobs:
           pacman -U 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst' 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst' --noconfirm
           echo -e "\n[chaotic-aur]\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> /etc/pacman.conf
 
-          # UPDATED: Added gparted and xfsprogs to the offline payload
+          # UPGRADED: Aggressively pruned offline cache (Removed headers, extra apps, and heavy browsers. Added Falkon.)
           pacman -Syw --cachedir airootfs/opt/offline_cache --dbpath /tmp/empty_db --noconfirm \
-            base hunspell hunspell-en_us linux-cachyos linux-cachyos-headers linux linux-headers linux-firmware scx-scheds switcheroo-control efibootmgr os-prober ntfs-3g networkmanager iwd bluez bluez-utils blueman \
-            pipewire pipewire-pulse wireplumber brightnessctl flatpak xorg-server sddm sudo zram-generator earlyoom \
+            base linux-cachyos linux linux-firmware scx-scheds switcheroo-control efibootmgr os-prober ntfs-3g networkmanager iwd bluez bluez-utils blueman \
+            pipewire pipewire-pulse wireplumber brightnessctl xorg-server sddm sudo zram-generator earlyoom \
             reflector ttf-dejavu ttf-liberation noto-fonts noto-fonts-emoji curl chaotic-keyring chaotic-mirrorlist parted btrfs-progs dosfstools e2fsprogs xfsprogs gparted \
             amd-ucode intel-ucode nvidia nvidia-utils nvidia-prime xf86-video-amdgpu intel-media-driver \
             grub refind limine \
-            hyprland waybar kitty foot rofi-wayland xdg-desktop-portal-hyprland polkit-kde-agent thunar gvfs \
-            plasma-desktop plasma-workspace plasma-nm power-profiles-daemon kscreen konsole dolphin ark kate spectacle discover packagekit-qt6 sddm-kcm \
-            xfce4 xfce4-terminal xfce4-goodies \
-            zen-browser-bin qt5-wayland qt6-wayland git stow cage mesa polkit
+            hyprland waybar kitty rofi-wayland xdg-desktop-portal-hyprland polkit-kde-agent thunar gvfs \
+            plasma-desktop plasma-workspace plasma-nm power-profiles-daemon kscreen konsole dolphin sddm-kcm \
+            xfce4 xfce4-terminal xfce4-goodies falkon \
+            qt5-wayland qt6-wayland git stow cage mesa polkit
 
       - name: Index Offline Database
         run: |
