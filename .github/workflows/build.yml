@@ -110,3 +110,36 @@ jobs:
         with:
           name: Kestrel-Arch-ISO
           path: out/*.iso
+
+      - name: Deploy to SourceForge Mirrors
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SF_SSH_KEY }}
+          SF_USERNAME: ${{ secrets.SF_USERNAME }}
+          SF_PROJECT: "kestrel-arch"
+        run: |
+          echo "=> Configuring SSH for SourceForge FRS..."
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan frs.sourceforge.net >> ~/.ssh/known_hosts
+
+          ISO_FILE=$(ls out/*.iso | head -n 1)
+          echo "=> Pushing $ISO_FILE to SourceForge via secure rsync..."
+          rsync -avP -e ssh "$ISO_FILE" "${SF_USERNAME}@frs.sourceforge.net:/home/frs/project/${SF_PROJECT}/"
+
+      - name: Generate Automated GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SF_PROJECT: "kestrel-arch"
+        run: |
+          ISO_FILE=$(basename $(ls out/*.iso | head -n 1))
+          RELEASE_TAG="v$(date +'%Y.%m.%d-%H%M')"
+          
+          echo "=> Crafting GitHub Release $RELEASE_TAG..."
+          DOWNLOAD_URL="https://downloads.sourceforge.net/project/${SF_PROJECT}/${ISO_FILE}"
+          
+          NOTES="### Kestrel Arch - Automated Deployment\n\n**Note:** Due to GitHub's 2GB file size limit, the ISO is hosted on our high-speed global mirrors.\n\n✅ **[Download $ISO_FILE Here]($DOWNLOAD_URL)**\n\n*Built automatically via GitHub Actions.*"
+          
+          gh release create "$RELEASE_TAG" \
+            --title "Kestrel Arch Release $RELEASE_TAG" \
+            --notes "$NOTES"
