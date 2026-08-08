@@ -9,7 +9,6 @@ jobs:
   build-archiso:
     runs-on: ubuntu-latest
     
-    # REQUIRED: Grants the workflow permission to delete and create releases/tags
     permissions:
       contents: write
       
@@ -18,8 +17,11 @@ jobs:
       options: --privileged
 
     steps:
+      # ADDED: fetch-depth: 0 so Git can read your previous commits!
       - name: Checkout Repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install Build Dependencies (Including Rust)
         run: |
@@ -27,7 +29,8 @@ jobs:
           pacman -Sy --noconfirm archlinux-keyring
           pacman -Su --noconfirm
           
-          pacman -S --noconfirm archiso wget gawk mtools dosfstools erofs-utils squashfs-tools pacman-contrib rustup base-devel cmake pkgconf freetype2 fontconfig libx11 libxkbcommon libxcb wayland openssh rsync github-cli
+          # ADDED 'git' to the end of this list to enable changelog parsing
+          pacman -S --noconfirm archiso wget gawk mtools dosfstools erofs-utils squashfs-tools pacman-contrib rustup base-devel cmake pkgconf freetype2 fontconfig libx11 libxkbcommon libxcb wayland openssh rsync github-cli git
           
           rustup default stable
 
@@ -123,41 +126,59 @@ jobs:
           echo "=> Configuring SSH for SourceForge FRS..."
           mkdir -p ~/.ssh
           
-          # PREEMPTIVE FIX: Strip any accidental Windows line endings (\r) from the key just in case
           echo "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
 
           ISO_FILE=$(ls out/*.iso | head -n 1)
           echo "=> Pushing $ISO_FILE to SourceForge via secure rsync..."
           
-          # DIRECT FIX: Ignore StrictHostKeyChecking to completely bypass the DNS round-robin issue
           rsync -avP -e "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" "$ISO_FILE" "${SF_USERNAME}@frs.sourceforge.net:/home/frs/project/${SF_PROJECT}/"
 
-      - name: Generate Fresh GitHub Release
+      - name: Generate Fresh GitHub Release with Notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SF_PROJECT: "kestrel-arch"
         run: |
           ISO_FILE=$(basename $(ls out/*.iso | head -n 1))
-          
-          # 1. Generate a brand new, unique tag based on the exact time
+          DOWNLOAD_URL="https://downloads.sourceforge.net/project/${SF_PROJECT}/${ISO_FILE}"
           RELEASE_TAG="build-$(date +'%Y.%m.%d-%H%M%S')"
           
-          # 2. Find the previous release and nuke it so the repo stays clean
+          # 1. Extract Changelog BEFORE deleting the old tag
           PREV_TAG=$(gh release view --json tagName -q .tagName 2>/dev/null || true)
+          git config --global --add safe.directory '*' || true
+          
+          if [ -n "$PREV_TAG" ] && git rev-parse "$PREV_TAG" >/dev/null 2>&1; then
+            CHANGELOG=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s" 2>/dev/null)
+          else
+            CHANGELOG=$(git log -5 --pretty=format:"- %s" 2>/dev/null)
+          fi
+          
+          [ -z "$CHANGELOG" ] && CHANGELOG="- Routine updates and maintenance."
+          
+          # 2. Create the Release Notes file
+          cat <<EOF > release_notes.md
+### 🦅 Kestrel Arch - Latest Deployment
+
+**Note:** Due to GitHub's 2GB file size limit, the ISO is hosted on our high-speed global mirrors.
+✅ **[Download $ISO_FILE Here]($DOWNLOAD_URL)**
+
+### 🚀 What's Improved or Fixed
+$CHANGELOG
+
+---
+*Updated automatically via GitHub Actions.*
+EOF
+          
+          # 3. Clean up old release
           if [ -n "$PREV_TAG" ]; then
             echo "=> Cleaning up old release: $PREV_TAG"
             gh release delete "$PREV_TAG" --yes --cleanup-tag 2>/dev/null || true
             git push origin --delete "$PREV_TAG" 2>/dev/null || true
           fi
           
-          # 3. Create the brand new release and force the "Latest" badge onto it
+          # 4. Create fresh GitHub Release using notes file
           echo "=> Creating fresh GitHub Release for $RELEASE_TAG..."
-          DOWNLOAD_URL="https://downloads.sourceforge.net/project/${SF_PROJECT}/${ISO_FILE}"
-          
-          NOTES="### Kestrel Arch - Latest Deployment\n\n**Note:** Due to GitHub's 2GB file size limit, the ISO is hosted on our high-speed global mirrors.\n\n✅ **[Download $ISO_FILE Here]($DOWNLOAD_URL)**\n\n*Updated automatically via GitHub Actions.*"
-          
           gh release create "$RELEASE_TAG" \
             --title "Kestrel Arch Latest Build" \
-            --notes "$NOTES" \
+            --notes-file release_notes.md \
             --latest
