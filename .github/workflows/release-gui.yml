@@ -13,7 +13,6 @@ jobs:
       contents: write
 
     steps:
-      # ADDED: fetch-depth: 0 so Git can read your previous commits for the changelog
       - name: Checkout Repository
         uses: actions/checkout@v7
         with:
@@ -43,14 +42,14 @@ jobs:
           # 1. Generate Tag
           RELEASE_TAG="build-$(date +'%Y.%m.%d-%H%M%S')"
           
-          # 2. Extract Changelog BEFORE deleting the old tag
+          # 2. Extract Changelog focused strictly on GUI source modifications
           PREV_TAG=$(gh release view --json tagName -q .tagName 2>/dev/null || true)
           git config --global --add safe.directory '*' || true
           
           if [ -n "$PREV_TAG" ] && git rev-parse "$PREV_TAG" >/dev/null 2>&1; then
-            CHANGELOG=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s" 2>/dev/null)
+            CHANGELOG=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s" -- airootfs/gui-src/ 2>/dev/null)
           else
-            CHANGELOG=$(git log -5 --pretty=format:"- %s" 2>/dev/null)
+            CHANGELOG=$(git log -5 --pretty=format:"- %s" -- airootfs/gui-src/ 2>/dev/null)
           fi
           
           [ -z "$CHANGELOG" ] && CHANGELOG="- Minor updates and stability improvements."
