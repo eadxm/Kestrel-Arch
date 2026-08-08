@@ -75,7 +75,7 @@ jobs:
           cp -r /usr/share/archiso/configs/releng /tmp/kestrel_profile
           echo -e "\n[chaotic-aur]\nSigLevel = Optional TrustAll\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> /tmp/kestrel_profile/pacman.conf
           
-          echo -e "zsh\ncage\nkitty\nmesa\nttf-dejavu\npolkit\npciutils\nxorg-xwayland\nparted\nbtrfs-progs\ndosfstools\nntfs-3g\ne2fsprogs\nxfsprogs\ngparted" >> /tmp/kestrel_profile/packages.x86_64
+          echo -e "zsh\ncage\nkitty\nmesa\nttf-dejavu\npolkit\npciutils\nxorg-xwayland\nparted\nbtrfs-progs\ndosfstools\ntfs-3g\ne2fsprogs\nxfsprogs\ngparted" >> /tmp/kestrel_profile/packages.x86_64
 
           mkdir -p /tmp/kestrel_profile/airootfs/usr/local/bin
           mkdir -p /tmp/kestrel_profile/airootfs/root
@@ -146,28 +146,20 @@ jobs:
             -e "ssh -i $KEY_PATH -o UserKnownHostsFile=$KNOWN_HOSTS_PATH -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 -o BatchMode=yes" \
             "$ISO_FILE" "${SF_USERNAME}@frs.sourceforge.net:/home/frs/project/${SF_PROJECT}/"
 
-      - name: Generate Fresh GitHub Release with Notes
+      - name: Create or Update Rolling GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SF_PROJECT: "kestrel-arch"
         run: |
-          ISO_FILE=$(basename $(ls out/*.iso | head -n 1))
+          ISO_FILE=$(basename $(ls out/*.iso 2>/dev/null | head -n 1))
           DOWNLOAD_URL="https://downloads.sourceforge.net/project/${SF_PROJECT}/${ISO_FILE}"
-          RELEASE_TAG="build-$(date +'%Y.%m.%d-%H%M%S')"
+          RELEASE_TAG="latest-iso"
           
-          # 1. Extract Changelog BEFORE deleting the old tag
-          PREV_TAG=$(gh release view --json tagName -q .tagName 2>/dev/null || true)
           git config --global --add safe.directory '*' || true
           
-          if [ -n "$PREV_TAG" ] && git rev-parse "$PREV_TAG" >/dev/null 2>&1; then
-            CHANGELOG=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s" -- . ':!.github' 2>/dev/null)
-          else
-            CHANGELOG=$(git log -5 --pretty=format:"- %s" -- . ':!.github' 2>/dev/null)
-          fi
-          
+          CHANGELOG=$(git log -10 --pretty=format:"- %s" -- . ':!.github' 2>/dev/null)
           [ -z "$CHANGELOG" ] && CHANGELOG="- Routine updates and maintenance."
           
-          # 2. Create the Release Notes file using YAML-safe echo grouping
           {
             echo "### 🦅 Kestrel Arch - Latest Deployment"
             echo ""
@@ -181,16 +173,24 @@ jobs:
             echo "*Updated automatically via GitHub Actions.*"
           } > release_notes.md
           
-          # 3. Clean up old release
-          if [ -n "$PREV_TAG" ]; then
-            echo "=> Cleaning up old release: $PREV_TAG"
-            gh release delete "$PREV_TAG" --yes --cleanup-tag 2>/dev/null || true
-            git push origin --delete "$PREV_TAG" 2>/dev/null || true
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "=> Updating existing release: $RELEASE_TAG"
+            
+            git tag -d "$RELEASE_TAG" 2>/dev/null || true
+            git push origin --delete "$RELEASE_TAG" 2>/dev/null || true
+            git tag "$RELEASE_TAG"
+            git push origin "$RELEASE_TAG" --force
+            
+            gh release edit "$RELEASE_TAG" \
+              --title "Kestrel Arch Latest ISO" \
+              --notes-file release_notes.md
+          else
+            echo "=> Creating rolling release: $RELEASE_TAG"
+            git tag "$RELEASE_TAG"
+            git push origin "$RELEASE_TAG"
+            
+            gh release create "$RELEASE_TAG" \
+              --title "Kestrel Arch Latest ISO" \
+              --notes-file release_notes.md \
+              --latest
           fi
-          
-          # 4. Create fresh GitHub Release using notes file
-          echo "=> Creating fresh GitHub Release for $RELEASE_TAG..."
-          gh release create "$RELEASE_TAG" \
-            --title "Kestrel Arch Latest Build" \
-            --notes-file release_notes.md \
-            --latest
