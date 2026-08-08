@@ -15,16 +15,25 @@ echo "An active internet connection is strictly required."
 echo ""
 
 # =====================================================================
-# SMART RAM GATEKEEPER & OOM PREVENTION (For 2GB / Low-RAM VMs)
+# SMART RAM GATEKEEPER & ZRAM OOM PREVENTION (For 2GB VMs)
 # =====================================================================
 TOTAL_RAM=$(free -m | awk '/^Mem:/{print $2}')
 if [ -n "$TOTAL_RAM" ] && [ "$TOTAL_RAM" -lt 4096 ]; then
-    echo "[SYSTEM CHECK] $TOTAL_RAM MB RAM detected. Allocating temporary 2GB swap space..."
-    fallocate -l 2G /tmp/swapfile 2>/dev/null || dd if=/dev/zero of=/tmp/swapfile bs=1M count=2048 status=none
-    chmod 600 /tmp/swapfile
-    mkswap /tmp/swapfile >/dev/null 2>&1
-    swapon /tmp/swapfile || true
-    echo "[INFO] Swap space successfully activated."
+    echo "[SYSTEM CHECK] $TOTAL_RAM MB RAM detected. Enabling ZRAM (Compressed Swap)..."
+    
+    # Load the zram kernel module
+    modprobe zram 2>/dev/null || true
+    
+    # Initialize a 1.5GB compressed RAM block
+    ZRAM_DEV=$(zramctl --find --size 1536M 2>/dev/null) || true
+    
+    if [ -n "$ZRAM_DEV" ]; then
+        mkswap "$ZRAM_DEV" >/dev/null 2>&1
+        swapon "$ZRAM_DEV" -p 32767 || true
+        echo "[INFO] ZRAM active on $ZRAM_DEV. Memory capacity artificially expanded!"
+    else
+        echo "[WARNING] Failed to initialize ZRAM. Proceeding with caution..."
+    fi
 fi
 
 echo "Select Deployment Interface:"
@@ -52,7 +61,7 @@ if [ "$UI_CHOICE" = "1" ]; then
     pacman-key --init >/dev/null 2>&1 || true
     pacman-key --populate archlinux >/dev/null 2>&1 || true
 
-    # Upgrade system libraries safely, using wildcards to block ALL split firmware blobs & useless microcode
+    # The DIET UPGRADE: Upgrade system libraries safely, using wildcards to block ALL split firmware blobs & useless microcode
     echo "=> Upgrading base libraries safely..."
     pacman -Syu --ignore "linux,linux-firmware*,intel-ucode,amd-ucode,linux-api-headers,mkinitcpio" --noconfirm
     
