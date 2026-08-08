@@ -122,14 +122,28 @@ jobs:
         run: |
           echo "=> Configuring SSH for SourceForge FRS..."
           mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
           
-          echo "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-
-          ISO_FILE=$(ls out/*.iso | head -n 1)
+          # FIX: Write the key as id_ed25519 to match your actual key type!
+          echo "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          
+          # Add SourceForge to known hosts
+          ssh-keyscan -H frs.sourceforge.net >> ~/.ssh/known_hosts 2>/dev/null || true
+          
+          # Verify the ISO exists
+          ISO_FILE=$(ls out/*.iso 2>/dev/null | head -n 1)
+          if [ -z "$ISO_FILE" ]; then
+            echo "ERROR: No ISO file found in out/"
+            exit 1
+          fi
+          
           echo "=> Pushing $ISO_FILE to SourceForge via secure rsync..."
           
-          rsync -avP -e "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" "$ISO_FILE" "${SF_USERNAME}@frs.sourceforge.net:/home/frs/project/${SF_PROJECT}/"
+          # FIX: Explicitly tell ssh to use the ed25519 key we just made
+          rsync -avP \
+            -e "ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 -o BatchMode=yes" \
+            "$ISO_FILE" "${SF_USERNAME}@frs.sourceforge.net:/home/frs/project/${SF_PROJECT}/"
 
       - name: Generate Fresh GitHub Release with Notes
         env:
