@@ -17,7 +17,6 @@ jobs:
       options: --privileged
 
     steps:
-      # ADDED: fetch-depth: 0 so Git can read your previous commits!
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
@@ -88,22 +87,20 @@ jobs:
           
           sed -i 's/^compressor=.*/compressor="zstd"/' /tmp/kestrel_profile/profiledef.sh
 
-          cat << 'EOF' > /tmp/kestrel_profile/airootfs/root/.zlogin
-          export XDG_RUNTIME_DIR=/run/user/$(id -u)
-          
-          export WLR_NO_HARDWARE_CURSORS=1
-          export WLR_RENDERER_ALLOW_SOFTWARE=1
-          
-          IS_VM=$(systemd-detect-virt -q && echo 1 || echo 0)
-          HAS_NVIDIA=$(lspci | grep -iE "vga.*nvidia|3d.*nvidia" >/dev/null 2>&1 && echo 1 || echo 0)
-          if [ "$IS_VM" = "1" ] || [ "$HAS_NVIDIA" = "1" ]; then
-              export WLR_RENDERER=pixman
-          fi
-          
-          if [ "$(tty)" = "/dev/tty1" ]; then
-              exec cage -s -- /usr/local/bin/kestrel-gui
-          fi
-          EOF
+          # FIX: Replaced EOF with safe echo block to prevent YAML parser errors
+          {
+            echo 'export XDG_RUNTIME_DIR=/run/user/$(id -u)'
+            echo 'export WLR_NO_HARDWARE_CURSORS=1'
+            echo 'export WLR_RENDERER_ALLOW_SOFTWARE=1'
+            echo 'IS_VM=$(systemd-detect-virt -q && echo 1 || echo 0)'
+            echo 'HAS_NVIDIA=$(lspci | grep -iE "vga.*nvidia|3d.*nvidia" >/dev/null 2>&1 && echo 1 || echo 0)'
+            echo 'if [ "$IS_VM" = "1" ] || [ "$HAS_NVIDIA" = "1" ]; then'
+            echo '    export WLR_RENDERER=pixman'
+            echo 'fi'
+            echo 'if [ "$(tty)" = "/dev/tty1" ]; then'
+            echo '    exec cage -s -- /usr/local/bin/kestrel-gui'
+            echo 'fi'
+          } > /tmp/kestrel_profile/airootfs/root/.zlogin
 
           mkdir -p /tmp/kestrel_profile/airootfs/opt
           cp -r airootfs/opt/offline_cache /tmp/kestrel_profile/airootfs/opt/
@@ -155,19 +152,19 @@ jobs:
           
           [ -z "$CHANGELOG" ] && CHANGELOG="- Routine updates and maintenance."
           
-          # 2. Create the Release Notes file
-          cat <<EOF > release_notes.md
-### 🦅 Kestrel Arch - Latest Deployment
-
-**Note:** Due to GitHub's 2GB file size limit, the ISO is hosted on our high-speed global mirrors.
-✅ **[Download $ISO_FILE Here]($DOWNLOAD_URL)**
-
-### 🚀 What's Improved or Fixed
-$CHANGELOG
-
----
-*Updated automatically via GitHub Actions.*
-EOF
+          # 2. Create the Release Notes file using YAML-safe echo grouping
+          {
+            echo "### 🦅 Kestrel Arch - Latest Deployment"
+            echo ""
+            echo "**Note:** Due to GitHub's 2GB file size limit, the ISO is hosted on our high-speed global mirrors."
+            echo "✅ **[Download $ISO_FILE Here]($DOWNLOAD_URL)**"
+            echo ""
+            echo "### 🚀 What's Improved or Fixed"
+            echo "$CHANGELOG"
+            echo ""
+            echo "---"
+            echo "*Updated automatically via GitHub Actions.*"
+          } > release_notes.md
           
           # 3. Clean up old release
           if [ -n "$PREV_TAG" ]; then
