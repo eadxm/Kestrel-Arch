@@ -1,0 +1,165 @@
+name: Build Kestrel Arch ISO (Online)
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *' # Runs automatically every day at midnight UTC
+
+jobs:
+  build-archiso-online:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: write
+      
+    container:
+      image: archlinux:latest
+      options: --privileged
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install Build Dependencies (Including Rust)
+        run: |
+          echo 'Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch' > /etc/pacman.d/mirrorlist
+          pacman -Sy --noconfirm archlinux-keyring
+          pacman -Su --noconfirm
+          
+          pacman -S --noconfirm archiso wget gawk mtools dosfstools erofs-utils squashfs-tools pacman-contrib rustup base-devel cmake pkgconf freetype2 fontconfig libx11 libxkbcommon libxcb wayland openssh rsync github-cli git
+          
+          rustup default stable
+
+      - name: Build Kestrel GUI
+        run: |
+          mkdir -p airootfs/gui-src/ui/fonts
+          cp Geomini.ttf airootfs/gui-src/ui/fonts/ 2>/dev/null || true
+          cp CascadiaCode.ttf airootfs/gui-src/ui/fonts/ 2>/dev/null || true
+          
+          cd airootfs/gui-src
+          cargo build --release
+
+      - name: Build the ISO
+        run: |
+          cp -r /usr/share/archiso/configs/releng /tmp/kestrel_profile
+          echo -e "\n[chaotic-aur]\nSigLevel = Optional TrustAll\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> /tmp/kestrel_profile/pacman.conf
+          
+          # Essential GUI packages for the live environment
+          echo -e "zsh\ncage\nkitty\nmesa\nttf-dejavu\npolkit\npciutils\nxorg-xwayland\nparted\nbtrfs-progs\ndosfstools\nntfs-3g\ne2fsprogs\nxfsprogs\ngparted" >> /tmp/kestrel_profile/packages.x86_64
+
+          mkdir -p /tmp/kestrel_profile/airootfs/usr/local/bin
+          mkdir -p /tmp/kestrel_profile/airootfs/root
+          
+          sed 's/\r$//' airootfs/usr/local/bin/install.sh > /tmp/kestrel_profile/airootfs/usr/local/bin/install.sh
+          cp airootfs/gui-src/target/release/kestrel-gui /tmp/kestrel_profile/airootfs/usr/local/bin/kestrel-gui
+          
+          # Renames the ISO file output to Kestrel-Arch(online)-YYYY-MM-DD-x86_64.iso
+          sed -i 's/^iso_name=.*/iso_name="Kestrel-Arch(online)"/' /tmp/kestrel_profile/profiledef.sh
+          
+          sed -i '/file_permissions=(/a \  ["/usr/local/bin/install.sh"]="0:0:755"\n  ["/usr/local/bin/kestrel-gui"]="0:0:755"' /tmp/kestrel_profile/profiledef.sh
+          
+          sed -i 's/^compressor=.*/compressor="zstd"/' /tmp/kestrel_profile/profiledef.sh
+
+          {
+            echo 'export XDG_RUNTIME_DIR=/run/user/$(id -u)'
+            echo 'export WLR_NO_HARDWARE_CURSORS=1'
+            echo 'export WLR_RENDERER_ALLOW_SOFTWARE=1'
+            echo 'IS_VM=$(systemd-detect-virt -q && echo 1 || echo 0)'
+            echo 'HAS_NVIDIA=$(lspci | grep -iE "vga.*nvidia|3d.*nvidia" >/dev/null 2>&1 && echo 1 || echo 0)'
+            echo 'if [ "$IS_VM" = "1" ] || [ "$HAS_NVIDIA" = "1" ]; then'
+            echo '    export WLR_RENDERER=pixman'
+            echo 'fi'
+            echo 'if [ "$(tty)" = "/dev/tty1" ]; then'
+            echo '    exec cage -s -- /usr/local/bin/kestrel-gui'
+            echo 'fi'
+          } > /tmp/kestrel_profile/airootfs/root/.zlogin
+
+          mkdir -p out/
+          mkarchiso -v -w /tmp/archiso-tmp -o out/ /tmp/kestrel_profile/
+
+      - name: Upload ISO Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: Kestrel-Arch-ISO-Online
+          path: out/*.iso
+
+      - name: Deploy to SourceForge Mirrors
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SF_SSH_KEY }}
+          SF_USERNAME: ${{ secrets.SF_USERNAME }}
+          SF_PROJECT: "kestrel-arch"
+        run: |
+          echo "=> Configuring SSH for SourceForge FRS..."
+          
+          KEY_PATH="/tmp/id_ed25519"
+          KNOWN_HOSTS_PATH="/tmp/known_hosts"
+          
+          echo "$SSH_PRIVATE_KEY" | tr -d '\r' > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+          
+          ssh-keyscan -H frs.sourceforge.net >> "$KNOWN_HOSTS_PATH" 2>/dev/null || true
+          
+          ISO_FILE=$(ls out/*.iso 2>/dev/null | head -n 1)
+          if [ -z "$ISO_FILE" ]; then
+            echo "ERROR: No ISO file found in out/"
+            exit 1
+          fi
+          
+          echo "=> Pushing $ISO_FILE to SourceForge via secure rsync..."
+          
+          rsync -avP \
+            -e "ssh -i $KEY_PATH -o UserKnownHostsFile=$KNOWN_HOSTS_PATH -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 -o BatchMode=yes" \
+            "$ISO_FILE" "${SF_USERNAME}@frs.sourceforge.net:/home/frs/project/${SF_PROJECT}/"
+
+      - name: Create or Update Rolling GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SF_PROJECT: "kestrel-arch"
+        run: |
+          ISO_FILE=$(basename $(ls out/*.iso 2>/dev/null | head -n 1))
+          DOWNLOAD_URL="https://downloads.sourceforge.net/project/${SF_PROJECT}/${ISO_FILE}"
+          RELEASE_TAG="latest-online-iso"
+          
+          git config --global --add safe.directory '*' || true
+          
+          CHANGELOG=$(git log -10 --pretty=format:"- %s" -- . ':!.github' 2>/dev/null)
+          [ -z "$CHANGELOG" ] && CHANGELOG="- Routine updates and maintenance."
+          
+          {
+            echo "### 🦅 Kestrel Arch - Latest Deployment (Online Net-Installer)"
+            echo ""
+            echo "**Note:** Due to GitHub's 2GB file size limit, the ISO is hosted on our high-speed global mirrors."
+            echo "✅ **[Download $ISO_FILE Here]($DOWNLOAD_URL)**"
+            echo ""
+            echo "### 🚀 What's Improved or Fixed"
+            echo "$CHANGELOG"
+            echo ""
+            echo "---"
+            echo "*Updated automatically via GitHub Actions.*"
+          } > release_notes.md
+          
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "=> Updating existing release: $RELEASE_TAG"
+            
+            git tag -d "$RELEASE_TAG" 2>/dev/null || true
+            git push origin --delete "$RELEASE_TAG" 2>/dev/null || true
+            git tag "$RELEASE_TAG"
+            git push origin "$RELEASE_TAG" --force
+            
+            gh release edit "$RELEASE_TAG" \
+              --title "Kestrel Arch Latest Online ISO" \
+              --notes-file release_notes.md
+          else
+            echo "=> Creating rolling release: $RELEASE_TAG"
+            git tag "$RELEASE_TAG"
+            git push origin "$RELEASE_TAG"
+            
+            gh release create "$RELEASE_TAG" \
+              --title "Kestrel Arch Latest Online ISO" \
+              --notes-file release_notes.md \
+              --latest
+          fi
