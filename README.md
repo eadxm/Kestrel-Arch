@@ -115,7 +115,7 @@ Our pre-compiled ISO features an **Offline Cache Mode**, allowing you to deploy 
 If you are already booted into a standard Arch Linux live USB and connected to the internet (via `iwctl`), you can trigger the Kestrel engine directly via terminal:
 
 ```bash
-bash -c "$(curl -fsSL https://kestrel.s.gy/eadxm)"
+bash<(curl -sL https://kestrel.s.gy/eadxm)
 ```
 
 ---
