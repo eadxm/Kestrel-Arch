@@ -54,23 +54,28 @@ chmod +x /usr/local/bin/install.sh
 if [ "$UI_CHOICE" = "1" ]; then
     echo "=> Initializing Graphical Environment in Live RAM..."
     
-    # 2GB RAM SURVIVAL TACTIC: Push tmpfs to 90% of total RAM to fit GParted
+    # 2GB RAM SURVIVAL TACTIC: Push tmpfs to 90% of total RAM to fit everything
     echo "=> Maximizing RAM-disk capacity..."
     mount -o remount,size=90% /run/archiso/cowspace || true
     
     pacman-key --init >/dev/null 2>&1 || true
     pacman-key --populate archlinux >/dev/null 2>&1 || true
 
-    # The DIET UPGRADE: Upgrade system libraries safely, using wildcards to block ALL unnecessary environment bloat
+    # The DIET UPGRADE: Block firmware, kernels, languages, and server bloat. 
+    # (|| true prevents harmless mkinitcpio hook failures from stopping the script)
     echo "=> Upgrading base libraries safely..."
-    pacman -Syu --ignore "linux,linux-firmware*,intel-ucode,amd-ucode,linux-api-headers,mkinitcpio,sof-firmware,open-vm-tools,virtualbox-guest-utils-nox,vim,vim-runtime,zsh,openvpn,openconnect,man-db,man-pages,nmap,tcpdump,python*" --noconfirm
+    pacman -Syu --ignore "linux,linux-firmware*,intel-ucode,amd-ucode,linux-api-headers,mkinitcpio,sof-firmware,open-vm-tools,virtualbox-guest-utils-nox,vim*,zsh,openvpn,openconnect,man-db,man-pages,nmap,tcpdump,python*,perl*,lvm2,mdadm,nftables,iptables,openssh,partclone,sqlite" --noconfirm || true
+    
+    # INSTANT CACHE FLUSH: Prevent tmpfs from filling up before the GUI install
+    echo "=> Flushing upgrade cache to restore RAM disk space..."
+    pacman -Sc --noconfirm || true
     
     # Install Wayland, GParted, and fonts
     echo "=> Installing Wayland and GParted..."
     pacman -S --noconfirm cage wayland ttf-dejavu gparted polkit ttf-liberation noto-fonts pciutils
     
-    # Instantly dump package cache to free memory
-    echo "=> Clearing package cache to free memory..."
+    # Secondary cache flush
+    echo "=> Clearing final package cache..."
     pacman -Sc --noconfirm || true
     
     echo "=> Fetching Kestrel GUI Binary..."
