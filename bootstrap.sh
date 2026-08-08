@@ -52,7 +52,7 @@ if [ "$UI_CHOICE" = "1" ]; then
     pacman-key --init >/dev/null 2>&1 || true
     pacman-key --populate archlinux >/dev/null 2>&1 || true
 
-    # The DIET UPGRADE: Upgrade system libraries safely, using wildcards to block ALL split firmware blobs & microcode
+    # Upgrade system libraries safely, using wildcards to block ALL split firmware blobs & useless microcode
     echo "=> Upgrading base libraries safely..."
     pacman -Syu --ignore "linux,linux-firmware*,intel-ucode,amd-ucode,linux-api-headers,mkinitcpio" --noconfirm
     
