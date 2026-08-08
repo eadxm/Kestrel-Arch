@@ -274,6 +274,8 @@ fn main() -> Result<(), slint::PlatformError> {
         let ui_handle = ui_handle.clone();
         
         let pure_disk_path = target_disk.as_str().split_whitespace().next().unwrap_or("").to_string();
+        
+        // Dynamically parse user selections from the UI strings (e.g., "1. Falkon" -> "1")
         let mode_num = install_mode.as_str().split('.').next().unwrap_or("2").to_string();
         let part_num = part_strategy.as_str().split('.').next().unwrap_or("1").to_string();
         
