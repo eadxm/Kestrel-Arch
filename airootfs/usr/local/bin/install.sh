@@ -37,6 +37,7 @@ error_handler() {
         echo "[INFO] GUI Mode active. Aborting deployment."
         umount -R /mnt &>/dev/null || true
         swapoff -a &>/dev/null || true
+        rmmod zram &>/dev/null || true
         exit "$exit_code"
     fi
 
@@ -54,6 +55,7 @@ error_handler() {
     
     umount -R /mnt &>/dev/null || true
     swapoff -a &>/dev/null || true
+    rmmod zram &>/dev/null || true
     sleep 2
     reboot || true
     exit "$exit_code"
@@ -493,20 +495,20 @@ clear
 if [ -z "$BROWSER_CHOICE" ]; then
     if [ "$INSTALL_MODE" = "1" ]; then
         echo "Select your primary web browser:"
-        echo " [1] Zen Browser (Recommended)"
+        echo " [1] Falkon Browser (Recommended, Lightweight Qt)"
         echo " [2] LibreWolf"
         echo " [3] Firefox"
         echo " [4] Brave"
         read -r -p "Choice (1-4): " BROWSER_CHOICE
     else
-        echo "[INFO] Offline Mode: Defaulting to Zen Browser."
+        echo "[INFO] Offline Mode: Defaulting to Falkon Browser."
         BROWSER_CHOICE="1"
         sleep 3
     fi
 fi
 
 case $BROWSER_CHOICE in 
-    1) CORE_PKGS="$CORE_PKGS zen-browser-bin" ;;
+    1) CORE_PKGS="$CORE_PKGS falkon" ;;
     2) CORE_PKGS="$CORE_PKGS librewolf" ;; 
     3) CORE_PKGS="$CORE_PKGS firefox" ;; 
     4) CORE_PKGS="$CORE_PKGS brave-bin" ;; 
@@ -854,6 +856,13 @@ sleep 5
 
 # Force the VM or CD drive to eject the Arch ISO before rebooting
 eject /dev/sr0 || true
+
+cleanup_zram() {
+    echo "[INFO] Safely flushing and unmounting temporary ZRAM..."
+    swapoff /dev/zram0 2>/dev/null || true
+    rmmod zram 2>/dev/null || true
+}
+cleanup_zram
 
 if [ "$NON_INTERACTIVE" = "1" ]; then
     trap - ERR; umount -R "$TARGET" 2>/dev/null || true; exit 0
