@@ -24,7 +24,6 @@ jobs:
       options: --privileged
 
     steps:
-      # FIX: Install Git BEFORE checking out, so the .git folder is actually downloaded!
       - name: Pre-Install Git
         run: pacman -Sy --noconfirm git
 
@@ -39,7 +38,6 @@ jobs:
           pacman -Sy --noconfirm archlinux-keyring
           pacman -Su --noconfirm
           
-          # ADDED 'git' to the end of this list to enable changelog parsing
           pacman -S --noconfirm archiso wget gawk mtools dosfstools erofs-utils squashfs-tools pacman-contrib rustup base-devel cmake pkgconf freetype2 fontconfig libx11 libxkbcommon libxcb wayland openssh rsync github-cli git
           
           rustup default stable
@@ -86,7 +84,6 @@ jobs:
           cp -r /usr/share/archiso/configs/releng /tmp/kestrel_profile
           echo -e "\n[chaotic-aur]\nSigLevel = Optional TrustAll\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> /tmp/kestrel_profile/pacman.conf
           
-          # FIX: Added the missing 'n' for ntfs-3g, plus the missing chaotic keys
           echo -e "zsh\ncage\nkitty\nmesa\nttf-dejavu\npolkit\npciutils\nxorg-xwayland\nparted\nbtrfs-progs\ndosfstools\nntfs-3g\ne2fsprogs\nxfsprogs\ngparted\nchaotic-keyring\nchaotic-mirrorlist" >> /tmp/kestrel_profile/packages.x86_64
 
           mkdir -p /tmp/kestrel_profile/airootfs/usr/local/bin
@@ -95,14 +92,12 @@ jobs:
           sed 's/\r$//' airootfs/usr/local/bin/install.sh > /tmp/kestrel_profile/airootfs/usr/local/bin/install.sh
           cp airootfs/gui-src/target/release/kestrel-gui /tmp/kestrel_profile/airootfs/usr/local/bin/kestrel-gui
           
-          # Renames the ISO file output to Kestrel-Arch(offline)-YYYY-MM-DD-x86_64.iso
           sed -i 's/^iso_name=.*/iso_name="Kestrel-Arch(offline)"/' /tmp/kestrel_profile/profiledef.sh
           
           sed -i '/file_permissions=(/a \  ["/usr/local/bin/install.sh"]="0:0:755"\n  ["/usr/local/bin/kestrel-gui"]="0:0:755"' /tmp/kestrel_profile/profiledef.sh
           
           sed -i 's/^compressor=.*/compressor="zstd"/' /tmp/kestrel_profile/profiledef.sh
 
-          # FIX: Replaced EOF with safe echo block to prevent YAML parser errors
           {
             echo 'export XDG_RUNTIME_DIR=/run/user/$(id -u)'
             echo 'export WLR_NO_HARDWARE_CURSORS=1'
@@ -134,9 +129,8 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HF_REPO: ${{ secrets.HF_REPO }}
         run: |
-          echo "=> Installing Python and Hugging Face API tools..."
-          pacman -Sy --noconfirm python python-pip
-          pip install --break-system-packages huggingface_hub
+          echo "=> Installing Git LFS..."
+          pacman -Sy --noconfirm git-lfs
           
           echo "=> Preparing ISO for Hugging Face deployment..."
           ISO_FILE=$(ls out/*.iso 2>/dev/null | head -n 1)
@@ -145,37 +139,39 @@ jobs:
             exit 1
           fi
           
-          export ISO_FILE="$ISO_FILE"
+          ISO_NAME=$(basename "$ISO_FILE")
           
-          echo "=> Syncing via Hugging Face API (No cloning required)..."
-          python -c "
-          import os
-          from huggingface_hub import HfApi
+          echo "=> Fast-cloning repo WITHOUT downloading old massive ISOs..."
+          git lfs install
+          # The SKIP_SMUDGE flag prevents Git from downloading the actual heavy files during clone
+          GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 https://user:$HF_TOKEN@huggingface.co/datasets/$HF_REPO hf_dataset
+          cd hf_dataset
           
-          api = HfApi(token=os.environ['HF_TOKEN'])
-          repo = os.environ['HF_REPO']
-          iso_path = os.environ['ISO_FILE']
-          iso_name = os.path.basename(iso_path)
+          git config user.name "Kestrel Bot"
+          git config user.email "actions@users.noreply.github.com"
           
-          print('=> Checking for old ISOs to clean up...')
-          try:
-              files = api.list_repo_files(repo_id=repo, repo_type='dataset')
-              for f in files:
-                  if f.startswith('Kestrel-Arch') and f.endswith('.iso') and f != iso_name:
-                      print(f'Deleting old file: {f}')
-                      api.delete_file(path_in_repo=f, repo_id=repo, repo_type='dataset')
-          except Exception as e:
-              print(f'Warning during cleanup: {e}')
-              
-          print(f'=> Uploading {iso_name} directly to Hugging Face...')
-          api.upload_file(
-              path_or_fileobj=iso_path,
-              path_in_repo=iso_name,
-              repo_id=repo,
-              repo_type='dataset'
-          )
-          print('=> Upload successful!')
-          "
+          # Remove ONLY the old offline ISO so we don't accidentally delete the online ISO pointer
+          rm -f Kestrel-Arch(offline)*.iso
+          
+          # Copy the fresh ISO into the dataset folder
+          cp ../$ISO_FILE ./
+          
+          # Ensure Git LFS tracks ISO files
+          git lfs track "*.iso"
+          
+          # Create an orphan branch to completely squash prior history and purge old LFS bloat
+          git checkout --orphan fresh_branch
+          
+          # Add everything (The new offline ISO + the untouched online ISO pointer + README)
+          git add .
+          git commit -m "Automated Offline ISO deployment: $ISO_NAME [skip ci]"
+          
+          # Force push the single clean commit to wipe out the old storage bloat
+          git branch -D main 2>/dev/null || true
+          git branch -m main
+          git push origin main --force
+          
+          echo "=> Hugging Face deployment and history reset successful!"
 
       - name: Create or Update Rolling GitHub Release
         env:
@@ -184,13 +180,11 @@ jobs:
         run: |
           ISO_FILE=$(basename $(ls out/*.iso 2>/dev/null | head -n 1))
           
-          # Generates the direct download link from your Hugging Face Dataset
           DOWNLOAD_URL="https://huggingface.co/datasets/${HF_REPO}/resolve/main/${ISO_FILE}?download=true"
           RELEASE_TAG="latest-iso"
           
           git config --global --add safe.directory '*' || true
           
-          # FIX: Only parses commits that actually modified the GUI or installer backend
           CHANGELOG=$(git log -10 --pretty=format:"- %s" -- airootfs/ 2>/dev/null)
           [ -z "$CHANGELOG" ] && CHANGELOG="- Routine updates and maintenance."
           
@@ -210,7 +204,6 @@ jobs:
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             echo "=> Updating existing release: $RELEASE_TAG"
             
-            # FIX: Force push tag without deleting, and ensure draft=false
             git tag -f "$RELEASE_TAG"
             git push origin "$RELEASE_TAG" --force
             
@@ -221,7 +214,6 @@ jobs:
           else
             echo "=> Creating rolling release: $RELEASE_TAG"
             
-            # FIX: Added forced git tag override here too, protecting against the exit 128 error!
             git tag -f "$RELEASE_TAG"
             git push origin "$RELEASE_TAG" --force
             
