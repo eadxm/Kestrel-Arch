@@ -3,6 +3,11 @@ name: Build Kestrel Arch ISO (Offline)
 on:
   push:
     branches: [ "main" ]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - 'bootstrap'
+      - 'bootstrap/**'
   workflow_dispatch:
   schedule:
     - cron: '0 0 * * *' # Runs automatically every day at midnight UTC
@@ -184,7 +189,8 @@ jobs:
           
           git config --global --add safe.directory '*' || true
           
-          CHANGELOG=$(git log -10 --pretty=format:"- %s" -- . ':!.github' 2>/dev/null)
+          # FIX: Only parses commits that actually modified the GUI or installer backend
+          CHANGELOG=$(git log -10 --pretty=format:"- %s" -- airootfs/ 2>/dev/null)
           [ -z "$CHANGELOG" ] && CHANGELOG="- Routine updates and maintenance."
           
           {
