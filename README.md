@@ -1,6 +1,7 @@
 #  Kestrel Arch Deployment Engine
 
 [![Build Status](https://img.shields.io/github/actions/workflow/status/eadxm/Kestrel-Arch/build.yml?branch=main&style=flat-square)](https://github.com/eadxm/Kestrel-Arch/actions)
+[![Hosted on Hugging Face](https://img.shields.io/badge/🤗%20Hosted_on-Hugging_Face-ffce3a.svg?style=flat-square)](https://huggingface.co/datasets/eadxm/Kestrel-Arch)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg?style=flat-square)](https://www.gnu.org/licenses/agpl-3.0)
 [![Rust](https://img.shields.io/badge/Rust-1.70+-orange.svg?style=flat-square&logo=rust)](https://www.rust-lang.org/)
 [![Arch Linux](https://img.shields.io/badge/Arch_Linux-Rolling-1793d1.svg?style=flat-square&logo=arch-linux)](https://archlinux.org/)
@@ -39,9 +40,9 @@ Kestrel Arch is an automated, hyper-optimized Arch Linux deployment system. It t
 | :--- | :--- | :--- |
 | **Architecture** | x86_64 | x86_64 |
 | **Firmware** | BIOS | UEFI |
-| **RAM** | 2 GB | 8 GB |
+| **RAM** | 2 GB | 6 GB |
 | **Storage** | 16 GB | 25 GB |
-| **Network** | No (if using the iso) | Yes |
+| **Network** | No (Offline ISO) | Yes (Online Net-Installer) |
 
 ---
 
@@ -93,6 +94,7 @@ Kestrel offers a comprehensive library of desktop environments, window managers,
 #### Web Browsers
 | Browser | Description |
 | :--- | :--- |
+| **Falkon** | A fast, exceptionally lightweight Qt-based web browser designed for speed and low memory footprint. |
 | **Zen Browser** | A highly optimized, privacy-centric browser built for speed and modern workflows. *(Recommended)* |
 | **LibreWolf** | A custom, hardened version of Firefox engineered for maximum privacy and security out of the box. |
 | **Firefox** | The powerful, open-source standard with massive extension support and customization. |
@@ -103,9 +105,12 @@ Kestrel offers a comprehensive library of desktop environments, window managers,
 ## 🚀 Installation & Deployment
 
 ### Method 1: The Graphical ISO (Recommended)
-Our pre-compiled ISO features an **Offline Cache Mode**, allowing you to deploy a full desktop environment even without an active internet connection.
+We provide two pre-compiled ISO variants, both hosted on our lightning-fast **Hugging Face Global CDN** so you can max out your download speeds with absolutely no VPN required.
 
-1. **Download:** Navigate to the **[Releases](../../releases)** tab and download the latest `Kestrel-Arch-ISO` artifact.
+* **Offline ISO (~4.3 GB):** Features a full package cache. Deploy a complete desktop environment without an active internet connection.
+* **Online ISO (~1.7 GB):** A lightweight net-installer that fetches the absolute latest packages during deployment.
+
+1. **Download:** Navigate to the **[Releases](../../releases)** tab and click the direct CDN download link for your preferred ISO variant.
 2. **Flash:** Write the ISO to a USB drive using [Rufus](https://rufus.ie/) (DD Mode), [BalenaEtcher](https://balena.io/etcher/), or [Ventoy](https://www.ventoy.net).
 3. **Deploy:** Boot from the USB. The system auto-launches the Kestrel UI.
 4. **Configure:** Select your target drive, input user credentials, select your environment, and click **Initialize Protocol**.
@@ -115,7 +120,7 @@ Our pre-compiled ISO features an **Offline Cache Mode**, allowing you to deploy 
 If you are already booted into a standard Arch Linux live USB and connected to the internet (via `iwctl`), you can trigger the Kestrel engine directly via terminal:
 
 ```bash
-bash<(curl -sL https://kestrel.s.gy/eadxm)
+bash<(curl -sL [https://kestrel.s.gy/eadxm](https://kestrel.s.gy/eadxm))
 ```
 
 ---
