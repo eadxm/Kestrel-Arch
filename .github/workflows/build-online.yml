@@ -124,8 +124,8 @@ jobs:
           git config user.name "Kestrel Bot"
           git config user.email "actions@users.noreply.github.com"
           
-          # Remove ONLY the old online ISO so we don't accidentally delete the offline ISO pointer
-          rm -f Kestrel-Arch(online)*.iso
+          # FIX: Quotes added to prevent bash syntax errors with parentheses
+          rm -f "Kestrel-Arch(online)"*.iso
           
           # Copy the fresh ISO into the dataset folder
           cp ../$ISO_FILE ./
