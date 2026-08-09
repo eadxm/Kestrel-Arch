@@ -124,7 +124,7 @@ jobs:
           name: Kestrel-Arch-ISO-Offline
           path: out/*.iso
 
-      # FIX: SourceForge logic removed and replaced with Hugging Face integration
+      # FIX: Replaced deprecated huggingface-cli with robust Python API
       - name: Deploy to Hugging Face
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
@@ -140,13 +140,18 @@ jobs:
             exit 1
           fi
           
-          # This python script safely deletes yesterday's offline ISO from HF before uploading today's
-          echo "=> Cleaning up old Offline ISOs on Hugging Face..."
+          export ISO_FILE="$ISO_FILE"
+          
+          echo "=> Syncing Offline ISO with Hugging Face Dataset..."
           python -c "
           import os
           from huggingface_hub import HfApi
           api = HfApi(token=os.environ['HF_TOKEN'])
           repo = os.environ['HF_REPO']
+          iso_path = os.environ['ISO_FILE']
+          iso_name = os.path.basename(iso_path)
+          
+          print('=> Checking for old Offline ISOs to clean up...')
           try:
               files = api.list_repo_files(repo_id=repo, repo_type='dataset')
               for f in files:
@@ -155,10 +160,16 @@ jobs:
                       api.delete_file(path_in_repo=f, repo_id=repo, repo_type='dataset')
           except Exception as e:
               print(f'Warning during cleanup: {e}')
+              
+          print(f'=> Uploading {iso_name} to Hugging Face (This may take a few minutes)...')
+          api.upload_file(
+              path_or_fileobj=iso_path,
+              path_in_repo=iso_name,
+              repo_id=repo,
+              repo_type='dataset'
+          )
+          print('=> Upload successful!')
           "
-          
-          echo "=> Uploading $ISO_FILE to Hugging Face (This may take a few minutes)..."
-          huggingface-cli upload $HF_REPO $ISO_FILE --repo-type dataset --token $HF_TOKEN
 
       - name: Create or Update Rolling GitHub Release
         env:
