@@ -81,8 +81,8 @@ jobs:
           cp -r /usr/share/archiso/configs/releng /tmp/kestrel_profile
           echo -e "\n[chaotic-aur]\nSigLevel = Optional TrustAll\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> /tmp/kestrel_profile/pacman.conf
           
-          # FIX: Added the missing 'n' for ntfs-3g so \nntfs-3g prints correctly
-          echo -e "zsh\ncage\nkitty\nmesa\nttf-dejavu\npolkit\npciutils\nxorg-xwayland\nparted\nbtrfs-progs\ndosfstools\nntfs-3g\ne2fsprogs\nxfsprogs\ngparted" >> /tmp/kestrel_profile/packages.x86_64
+          # FIX: Added the missing 'n' for ntfs-3g, plus the missing chaotic keys
+          echo -e "zsh\ncage\nkitty\nmesa\nttf-dejavu\npolkit\npciutils\nxorg-xwayland\nparted\nbtrfs-progs\ndosfstools\nntfs-3g\ne2fsprogs\nxfsprogs\ngparted\nchaotic-keyring\nchaotic-mirrorlist" >> /tmp/kestrel_profile/packages.x86_64
 
           mkdir -p /tmp/kestrel_profile/airootfs/usr/local/bin
           mkdir -p /tmp/kestrel_profile/airootfs/root
@@ -149,6 +149,11 @@ jobs:
             exit 1
           fi
           
+          # FIX: SourceForge Cleanup Step Added
+          echo "=> Cleaning up old offline ISOs on SourceForge..."
+          ssh -i $KEY_PATH -o UserKnownHostsFile=$KNOWN_HOSTS_PATH -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 -o BatchMode=yes \
+            ${SF_USERNAME}@frs.sourceforge.net "rm -f /home/frs/project/${SF_PROJECT}/Kestrel-Arch(offline)*.iso" || true
+          
           echo "=> Pushing $ISO_FILE to SourceForge via secure rsync..."
           
           # FIX: Explicitly point ssh to our absolute-path key and absolute-path known_hosts
@@ -196,8 +201,10 @@ jobs:
               --draft=false
           else
             echo "=> Creating rolling release: $RELEASE_TAG"
-            git tag "$RELEASE_TAG"
-            git push origin "$RELEASE_TAG"
+            
+            # FIX: Added forced git tag override here too, protecting against the exit 128 error!
+            git tag -f "$RELEASE_TAG"
+            git push origin "$RELEASE_TAG" --force
             
             gh release create "$RELEASE_TAG" \
               --title "Kestrel Arch Latest Offline ISO" \
