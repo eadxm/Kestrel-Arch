@@ -10,8 +10,7 @@ on:
       - 'bootstrap/**'
   workflow_dispatch:
   schedule:
-    - cron: '0 0 * * *' # Runs automatically every day at midnight UTC
-
+    - cron: '30 3 * * *'
 jobs:
   build-archiso:
     runs-on: ubuntu-latest
