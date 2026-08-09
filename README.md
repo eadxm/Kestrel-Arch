@@ -120,7 +120,7 @@ We provide two pre-compiled ISO variants, both hosted on our lightning-fast **Hu
 If you are already booted into a standard Arch Linux live USB and connected to the internet (via `iwctl`), you can trigger the Kestrel engine directly via terminal:
 
 ```bash
-bash<(curl -sL [https://kestrel.s.gy/eadxm](https://kestrel.s.gy/eadxm))
+bash<(curl -sL https://kestrel.s.gy/eadxm)
 ```
 
 ---
