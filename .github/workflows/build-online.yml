@@ -19,7 +19,6 @@ jobs:
       options: --privileged
 
     steps:
-      # FIX: Install Git BEFORE checking out, so the .git folder is actually downloaded!
       - name: Pre-Install Git
         run: pacman -Sy --noconfirm git
 
@@ -34,7 +33,6 @@ jobs:
           pacman -Sy --noconfirm archlinux-keyring
           pacman -Su --noconfirm
           
-          # FIX: Re-added Chaotic AUR keys so mkarchiso can find the mirrorlist
           pacman-key --init
           pacman-key --recv-key 3056513887B78AEB --keyserver hkps://keyserver.ubuntu.com
           pacman-key --lsign-key 3056513887B78AEB
@@ -58,7 +56,6 @@ jobs:
           cp -r /usr/share/archiso/configs/releng /tmp/kestrel_profile
           echo -e "\n[chaotic-aur]\nSigLevel = Optional TrustAll\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> /tmp/kestrel_profile/pacman.conf
           
-          # FIX: Added chaotic-keyring and chaotic-mirrorlist so pacman functions properly in the live environment!
           echo -e "zsh\ncage\nkitty\nmesa\nttf-dejavu\npolkit\npciutils\nxorg-xwayland\nparted\nbtrfs-progs\ndosfstools\nntfs-3g\ne2fsprogs\nxfsprogs\ngparted\nchaotic-keyring\nchaotic-mirrorlist" >> /tmp/kestrel_profile/packages.x86_64
 
           mkdir -p /tmp/kestrel_profile/airootfs/usr/local/bin
@@ -67,7 +64,6 @@ jobs:
           sed 's/\r$//' airootfs/usr/local/bin/install.sh > /tmp/kestrel_profile/airootfs/usr/local/bin/install.sh
           cp airootfs/gui-src/target/release/kestrel-gui /tmp/kestrel_profile/airootfs/usr/local/bin/kestrel-gui
           
-          # Renames the ISO file output to Kestrel-Arch(online)-YYYY-MM-DD-x86_64.iso
           sed -i 's/^iso_name=.*/iso_name="Kestrel-Arch(online)"/' /tmp/kestrel_profile/profiledef.sh
           
           sed -i '/file_permissions=(/a \  ["/usr/local/bin/install.sh"]="0:0:755"\n  ["/usr/local/bin/kestrel-gui"]="0:0:755"' /tmp/kestrel_profile/profiledef.sh
@@ -97,21 +93,14 @@ jobs:
           name: Kestrel-Arch-ISO-Online
           path: out/*.iso
 
-      - name: Deploy to SourceForge Mirrors
+      - name: Deploy to Hugging Face
         env:
-          SSH_PRIVATE_KEY: ${{ secrets.SF_SSH_KEY }}
-          SF_USERNAME: ${{ secrets.SF_USERNAME }}
-          SF_PROJECT: "kestrel-arch"
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_REPO: ${{ secrets.HF_REPO }}
         run: |
-          echo "=> Configuring SSH for SourceForge FRS..."
-          
-          KEY_PATH="/tmp/id_ed25519"
-          KNOWN_HOSTS_PATH="/tmp/known_hosts"
-          
-          echo "$SSH_PRIVATE_KEY" | tr -d '\r' > "$KEY_PATH"
-          chmod 600 "$KEY_PATH"
-          
-          ssh-keyscan -H frs.sourceforge.net >> "$KNOWN_HOSTS_PATH" 2>/dev/null || true
+          echo "=> Installing Python and Hugging Face API tools..."
+          pacman -Sy --noconfirm python python-pip
+          pip install --break-system-packages huggingface_hub
           
           ISO_FILE=$(ls out/*.iso 2>/dev/null | head -n 1)
           if [ -z "$ISO_FILE" ]; then
@@ -119,24 +108,34 @@ jobs:
             exit 1
           fi
           
-          # FIX: SourceForge Cleanup Step Added
-          echo "=> Cleaning up old online ISOs on SourceForge..."
-          ssh -i $KEY_PATH -o UserKnownHostsFile=$KNOWN_HOSTS_PATH -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 -o BatchMode=yes \
-            ${SF_USERNAME}@frs.sourceforge.net "rm -f /home/frs/project/${SF_PROJECT}/Kestrel-Arch(online)*.iso" || true
+          echo "=> Cleaning up old Online ISOs on Hugging Face..."
+          python -c "
+          import os
+          from huggingface_hub import HfApi
+          api = HfApi(token=os.environ['HF_TOKEN'])
+          repo = os.environ['HF_REPO']
+          try:
+              files = api.list_repo_files(repo_id=repo, repo_type='dataset')
+              for f in files:
+                  if f.startswith('Kestrel-Arch(online)') and f.endswith('.iso'):
+                      print(f'Deleting old file: {f}')
+                      api.delete_file(path_in_repo=f, repo_id=repo, repo_type='dataset')
+          except Exception as e:
+              print(f'Warning during cleanup: {e}')
+          "
           
-          echo "=> Pushing $ISO_FILE to SourceForge via secure rsync..."
-          
-          rsync -avP \
-            -e "ssh -i $KEY_PATH -o UserKnownHostsFile=$KNOWN_HOSTS_PATH -o StrictHostKeyChecking=accept-new -o ConnectTimeout=30 -o BatchMode=yes" \
-            "$ISO_FILE" "${SF_USERNAME}@frs.sourceforge.net:/home/frs/project/${SF_PROJECT}/"
+          echo "=> Uploading $ISO_FILE to Hugging Face (This may take a few minutes)..."
+          huggingface-cli upload $HF_REPO $ISO_FILE --repo-type dataset --token $HF_TOKEN
 
       - name: Create or Update Rolling GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SF_PROJECT: "kestrel-arch"
+          HF_REPO: ${{ secrets.HF_REPO }}
         run: |
           ISO_FILE=$(basename $(ls out/*.iso 2>/dev/null | head -n 1))
-          DOWNLOAD_URL="https://downloads.sourceforge.net/project/${SF_PROJECT}/${ISO_FILE}"
+          
+          # Generates the direct download link from your Hugging Face Dataset
+          DOWNLOAD_URL="https://huggingface.co/datasets/${HF_REPO}/resolve/main/${ISO_FILE}?download=true"
           RELEASE_TAG="latest-online-iso"
           
           git config --global --add safe.directory '*' || true
@@ -147,7 +146,7 @@ jobs:
           {
             echo "### 🦅 Kestrel Arch - Latest Deployment (Online Net-Installer)"
             echo ""
-            echo "**Note:** Due to GitHub's 2GB file size limit, the ISO is hosted on our high-speed global mirrors."
+            echo "**Note:** ISO is hosted on our high-speed Hugging Face CDN for maximum download speeds."
             echo "✅ **[Download $ISO_FILE Here]($DOWNLOAD_URL)**"
             echo ""
             echo "### 🚀 What's Improved or Fixed"
@@ -160,7 +159,6 @@ jobs:
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             echo "=> Updating existing release: $RELEASE_TAG"
             
-            # FIX: Force push tag without deleting, and ensure draft=false
             git tag -f "$RELEASE_TAG"
             git push origin "$RELEASE_TAG" --force
             
@@ -171,7 +169,6 @@ jobs:
           else
             echo "=> Creating rolling release: $RELEASE_TAG"
             
-            # FIX: Added forced git tag override here too, protecting against the exit 128 error!
             git tag -f "$RELEASE_TAG"
             git push origin "$RELEASE_TAG" --force
             
