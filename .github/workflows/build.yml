@@ -129,44 +129,53 @@ jobs:
           name: Kestrel-Arch-ISO-Offline
           path: out/*.iso
 
-      # FIX: Automatically squashes git/LFS history on every run to prevent storage bloat
       - name: Deploy to Hugging Face
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HF_REPO: ${{ secrets.HF_REPO }}
         run: |
-          echo "=> Installing Git LFS..."
-          pacman -Sy --noconfirm git-lfs
+          echo "=> Installing Python and Hugging Face API tools..."
+          pacman -Sy --noconfirm python python-pip
+          pip install --break-system-packages huggingface_hub
           
-          echo "=> Setting up Git LFS and cloning Hugging Face Dataset repository..."
-          git lfs install
-          git clone https://user:$HF_TOKEN@huggingface.co/datasets/$HF_REPO hf_dataset
-          cd hf_dataset
+          echo "=> Preparing ISO for Hugging Face deployment..."
+          ISO_FILE=$(ls out/*.iso 2>/dev/null | head -n 1)
+          if [ -z "$ISO_FILE" ]; then
+            echo "ERROR: No ISO file found in out/"
+            exit 1
+          fi
           
-          git config user.name "Kestrel Bot"
-          git config user.email "actions@users.noreply.github.com"
+          export ISO_FILE="$ISO_FILE"
           
-          # Remove old ISO files to ensure a clean slate
-          rm -f *.iso
+          echo "=> Syncing via Hugging Face API (No cloning required)..."
+          python -c "
+          import os
+          from huggingface_hub import HfApi
           
-          # Copy the fresh ISO into the dataset folder
-          cp ../$ISO_FILE ./
+          api = HfApi(token=os.environ['HF_TOKEN'])
+          repo = os.environ['HF_REPO']
+          iso_path = os.environ['ISO_FILE']
+          iso_name = os.path.basename(iso_path)
           
-          # Ensure Git LFS tracks ISO files
-          git lfs track "*.iso"
-          git add .gitattributes
-          
-          # Create an orphan branch to completely squash prior history and purge old LFS bloat
-          git checkout --orphan fresh_branch
-          git add "$ISO_NAME" .gitattributes README.md 2>/dev/null || git add "$ISO_NAME" .gitattributes
-          git commit -m "Automated ISO deployment: $ISO_NAME [skip ci]"
-          
-          # Replace main branch with the clean squashed branch and force push
-          git branch -D main 2>/dev/null || true
-          git branch -m main
-          git push origin main --force
-          
-          echo "=> Hugging Face deployment and history reset successful!"
+          print('=> Checking for old ISOs to clean up...')
+          try:
+              files = api.list_repo_files(repo_id=repo, repo_type='dataset')
+              for f in files:
+                  if f.startswith('Kestrel-Arch') and f.endswith('.iso') and f != iso_name:
+                      print(f'Deleting old file: {f}')
+                      api.delete_file(path_in_repo=f, repo_id=repo, repo_type='dataset')
+          except Exception as e:
+              print(f'Warning during cleanup: {e}')
+              
+          print(f'=> Uploading {iso_name} directly to Hugging Face...')
+          api.upload_file(
+              path_or_fileobj=iso_path,
+              path_in_repo=iso_name,
+              repo_id=repo,
+              repo_type='dataset'
+          )
+          print('=> Upload successful!')
+          "
 
       - name: Create or Update Rolling GitHub Release
         env:
