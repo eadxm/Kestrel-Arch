@@ -103,48 +103,49 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HF_REPO: ${{ secrets.HF_REPO }}
         run: |
-          echo "=> Installing Python and Hugging Face API tools..."
-          pacman -Sy --noconfirm python python-pip
-          pip install --break-system-packages huggingface_hub
+          echo "=> Installing Git LFS..."
+          pacman -Sy --noconfirm git-lfs
           
-          echo "=> Preparing ISO for Hugging Face deployment..."
+          echo "=> Preparing Online ISO for Hugging Face deployment..."
           ISO_FILE=$(ls out/*.iso 2>/dev/null | head -n 1)
           if [ -z "$ISO_FILE" ]; then
             echo "ERROR: No ISO file found in out/"
             exit 1
           fi
           
-          export ISO_FILE="$ISO_FILE"
+          ISO_NAME=$(basename "$ISO_FILE")
           
-          echo "=> Syncing via Hugging Face API (No cloning required)..."
-          python -c "
-          import os
-          from huggingface_hub import HfApi
+          echo "=> Fast-cloning repo WITHOUT downloading old massive ISOs..."
+          git lfs install
+          # The SKIP_SMUDGE flag prevents Git from downloading the actual heavy files during clone
+          GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 https://user:$HF_TOKEN@huggingface.co/datasets/$HF_REPO hf_dataset
+          cd hf_dataset
           
-          api = HfApi(token=os.environ['HF_TOKEN'])
-          repo = os.environ['HF_REPO']
-          iso_path = os.environ['ISO_FILE']
-          iso_name = os.path.basename(iso_path)
+          git config user.name "Kestrel Bot"
+          git config user.email "actions@users.noreply.github.com"
           
-          print('=> Checking for old ISOs to clean up...')
-          try:
-              files = api.list_repo_files(repo_id=repo, repo_type='dataset')
-              for f in files:
-                  if f.startswith('Kestrel-Arch') and f.endswith('.iso') and f != iso_name:
-                      print(f'Deleting old file: {f}')
-                      api.delete_file(path_in_repo=f, repo_id=repo, repo_type='dataset')
-          except Exception as e:
-              print(f'Warning during cleanup: {e}')
-              
-          print(f'=> Uploading {iso_name} directly to Hugging Face...')
-          api.upload_file(
-              path_or_fileobj=iso_path,
-              path_in_repo=iso_name,
-              repo_id=repo,
-              repo_type='dataset'
-          )
-          print('=> Upload successful!')
-          "
+          # Remove ONLY the old online ISO so we don't accidentally delete the offline ISO pointer
+          rm -f Kestrel-Arch(online)*.iso
+          
+          # Copy the fresh ISO into the dataset folder
+          cp ../$ISO_FILE ./
+          
+          # Ensure Git LFS tracks ISO files
+          git lfs track "*.iso"
+          
+          # Create an orphan branch to completely squash prior history and purge old LFS bloat
+          git checkout --orphan fresh_branch
+          
+          # Add everything (The new online ISO + the untouched offline ISO pointer + README)
+          git add .
+          git commit -m "Automated Online ISO deployment: $ISO_NAME [skip ci]"
+          
+          # Force push the single clean commit to wipe out the old storage bloat
+          git branch -D main 2>/dev/null || true
+          git branch -m main
+          git push origin main --force
+          
+          echo "=> Hugging Face deployment and history reset successful!"
 
       - name: Create or Update Rolling GitHub Release
         env:
