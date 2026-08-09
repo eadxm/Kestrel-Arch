@@ -135,14 +135,8 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HF_REPO: ${{ secrets.HF_REPO }}
         run: |
-          echo "=> Preparing ISO for Hugging Face deployment..."
-          ISO_FILE=$(ls out/*.iso 2>/dev/null | head -n 1)
-          if [ -z "$ISO_FILE" ]; then
-            echo "ERROR: No ISO file found in out/"
-            exit 1
-          fi
-          
-          ISO_NAME=$(basename "$ISO_FILE")
+          echo "=> Installing Git LFS..."
+          pacman -Sy --noconfirm git-lfs
           
           echo "=> Setting up Git LFS and cloning Hugging Face Dataset repository..."
           git lfs install
