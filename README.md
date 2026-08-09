@@ -89,7 +89,7 @@ Kestrel offers a comprehensive library of desktop environments, window managers,
 | **GRUB** | A highly configurable, battle-tested bootloader featuring robust BTRFS snapshot integration. |
 | **systemd-boot** | A minimalist, EFI-native boot manager that is exceptionally fast and deeply integrated. |
 | **rEFInd** | A visually appealing, graphical boot manager with excellent auto-detection of operating systems. |
-| **Limine** | A modern, high-speed, and easily customizable bootloader with a clean configuration syntax. |
+| **Limine** | A modern, high-speed, and easily customizable bootloader with a clean configuration syntax featuring BTRFS snapshot integration. |
 
 #### Web Browsers
 | Browser | Description |
