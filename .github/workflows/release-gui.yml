@@ -3,6 +3,11 @@ name: Compile and Release Kestrel GUI
 on:
   push:
     branches: [ "main" ]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - 'bootstrap'
+      - 'bootstrap/**'
   workflow_dispatch:
 
 jobs:
