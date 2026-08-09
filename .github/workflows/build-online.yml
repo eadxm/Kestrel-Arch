@@ -99,19 +99,13 @@ jobs:
           path: out/*.iso
 
       # FIX: Automatically squashes git/LFS history on every run to prevent storage bloat
-      - name: Deploy to Hugging Face
+- name: Deploy to Hugging Face
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HF_REPO: ${{ secrets.HF_REPO }}
         run: |
-          echo "=> Preparing Online ISO for Hugging Face deployment..."
-          ISO_FILE=$(ls out/*.iso 2>/dev/null | head -n 1)
-          if [ -z "$ISO_FILE" ]; then
-            echo "ERROR: No ISO file found in out/"
-            exit 1
-          fi
-          
-          ISO_NAME=$(basename "$ISO_FILE")
+          echo "=> Installing Git LFS..."
+          pacman -Sy --noconfirm git-lfs
           
           echo "=> Setting up Git LFS and cloning Hugging Face Dataset repository..."
           git lfs install
@@ -134,7 +128,7 @@ jobs:
           # Create an orphan branch to completely squash prior history and purge old LFS bloat
           git checkout --orphan fresh_branch
           git add "$ISO_NAME" .gitattributes README.md 2>/dev/null || git add "$ISO_NAME" .gitattributes
-          git commit -m "Automated Online ISO deployment: $ISO_NAME [skip ci]"
+          git commit -m "Automated ISO deployment: $ISO_NAME [skip ci]"
           
           # Replace main branch with the clean squashed branch and force push
           git branch -D main 2>/dev/null || true
