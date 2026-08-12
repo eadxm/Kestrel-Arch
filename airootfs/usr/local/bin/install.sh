@@ -1,786 +1,865 @@
-import { ComboBox, ProgressIndicator, VerticalBox, HorizontalBox, LineEdit, CheckBox, ScrollView, TextEdit } from "std-widgets.slint";
+#!/bin/bash
+set -eE -o pipefail
 
-// ==========================================
-// FONT EMBEDDING
-// ==========================================
-import "./fonts/Geomini.ttf";
-import "./fonts/CascadiaCode.ttf";
+# CRITICAL GUI FIX: Merge standard error into standard output. 
+# This guarantees that the Slint GUI captures the EXACT raw errors from failing commands.
+exec 2>&1
 
-// Struct to hold partition data sent from Rust
-export struct PartitionData {
-    name: string,
-    fstype: string,
-    label: string,
-    mountpoint: string,
-    size: string,
-    color_hex: color,
+# =====================================================================
+#             FAIL-SAFE TELEMETRY AND ERROR TRAPPING ENGINE
+# =====================================================================
+STATUS_FILE="/tmp/kestrel_status"
+
+update_status() {
+    local clean_msg=$(echo -e "$1" | sed -r 's/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[mGK]//g')
+    echo "$clean_msg" > "$STATUS_FILE"
+    
+    if [ "$NON_INTERACTIVE" = "1" ]; then
+        echo "$clean_msg"
+    fi
 }
 
-export global InstallerLogic {
-    // 15 parameters to match main.rs explicitly
-    callback start_install(string, string, string, string, string, string, string, string, string, string, string, string, string, string, string);
-    callback poweroff_system();
-    callback reboot_system();
+error_handler() {
+    local exit_code=$1
+    local line_number=$2
     
-    callback check_network_and_proceed(string); 
-    callback rescan_wifi();
-    callback connect_wifi(string, string); 
+    update_status "ERROR: Deployment failed at line $line_number. Check log above for raw error."
     
-    // GParted Callback & Data binding
-    callback launch_gparted(string);
-    in-out property <[PartitionData]> current_partitions;
+    echo -e "\n=========================================================="
+    echo "         CRITICAL FAULT DETECTED BY KESTREL         "
+    echo "=========================================================="
+    echo "[FAULT] Command failed with exit code: $exit_code"
+    echo "[LOCATION] Failed execution occurred on line: $line_number"
     
-    in property <float> progress: 0.0;
-    in property <string> status_text: "Ready to deploy.";
-    in property <string> console_log: "> System pre-flight checks passed.\n> Standing by for deployment protocol...\n";
+    if [ "$NON_INTERACTIVE" = "1" ]; then
+        echo "[INFO] GUI Mode active. Aborting deployment."
+        umount -R /mnt &>/dev/null || true
+        swapoff -a &>/dev/null || true
+        exit "$exit_code"
+    fi
+
+    echo "----------------------------------------------------------"
+    echo "Options:"
+    echo " [1] Force safe unmount and restart system execution"
+    echo " [2] Drop into live emergency recovery shell (Zsh)"
+    echo "----------------------------------------------------------"
+    read -r -p "Select recovery path (1-2): " FAULT_CHOICE
+    
+    if [ "$FAULT_CHOICE" = "2" ]; then
+        echo "[INFO] Handing over root bash console. Type 'exit' to return."
+        /bin/zsh --no-rcs || true
+    fi
+    
+    umount -R /mnt &>/dev/null || true
+    swapoff -a &>/dev/null || true
+    sleep 2
+    reboot || true
+    exit "$exit_code"
 }
 
-// ==========================================
-// FLUID BUTTON COMPONENT
-// ==========================================
-component GlowingButton inherits Rectangle {
-    in property <string> text;
-    in property <bool> primary: false;
-    callback clicked();
+trap 'error_handler $? $LINENO' ERR
 
-    height: 45px;
-    width: 200px;
-    border-radius: 6px;
+# =====================================================================
+#              GUI / HEADLESS OVERRIDE MODULE
+# =====================================================================
+if [ "$NON_INTERACTIVE" = "1" ]; then
+    update_status "PROGRESS: Initializing non-interactive GUI deployment..."
+    echo "[INFO] Non-Interactive GUI Mode Engaged."
     
-    background: primary ? @linear-gradient(90deg, #14B8A6 0%, #06B6D4 100%) : transparent;
-    border-width: primary ? 0px : 1px;
-    border-color: primary ? transparent : (touch.has-hover ? #06B6D4 : #374151);
-    animate border-color { duration: 100ms; easing: ease-in-out; }
+    clear() { :; }
+    
+    TARGET_DRIVE="${TARGET_DISK}"
+    INSTALL_MODE="${INSTALL_MODE:-2}"
+    
+    case "$PARTITION_STRATEGY" in
+        "1") INSTALL_STRATEGY="WIPE" ;;
+        "2") INSTALL_STRATEGY="REPLACE" ;;
+        "3") INSTALL_STRATEGY="MANUAL" ;;
+        *) INSTALL_STRATEGY="WIPE" ;;
+    esac
 
-    Text {
-        text: root.text;
-        color: primary ? #000000 : (touch.has-hover ? #A5F3FC : #E5E7EB);
-        font-size: 14px;
-        font-weight: 600;
-        horizontal-alignment: center;
-        vertical-alignment: center;
-        animate color { duration: 100ms; easing: ease-in-out; }
-    }
-    
-    Rectangle {
-        width: 100%;
-        height: 100%;
-        border-radius: parent.border-radius;
-        background: primary ? #000000 : #A5F3FC;
-        opacity: touch.pressed ? 0.25 : (touch.has-hover ? 0.08 : 0.0);
-        animate opacity { duration: 100ms; easing: ease-in-out; }
-    }
-    
-    touch := TouchArea {
-        clicked => { root.clicked(); }
-        mouse-cursor: pointer;
-    }
-}
+    FILESYSTEM="${GUI_FILESYSTEM:-ext4}"
+    GUI_REPLACE_PART="${GUI_REPLACE_PART:-}"
+    GUI_ROOT_PART="${GUI_ROOT_PART:-}"
+    GUI_EFI_PART="${GUI_EFI_PART:-}"
+    system_hostname="${GUI_HOSTNAME:-kestrel}"
+    username="${GUI_USERNAME:-kestrel}"
+    user_password="${GUI_PASSWORD:-password}"
+    root_password="${GUI_ROOT_PASSWORD:-$user_password}"
+    BROWSER_CHOICE="${BROWSER_CHOICE:-1}"
+    PERF_CHOICE="${PERF_CHOICE:-Y}"
+    DE_CHOICE="${DE_CHOICE:-1}" 
+    BOOT_CHOICE="${BOOT_CHOICE:-1}" 
+fi
 
-// ==========================================
-// CUSTOM RADIO OPTION COMPONENT
-// ==========================================
-component RadioOption inherits Rectangle {
-    in property <string> title;
-    in property <string> description;
-    in property <bool> active: false;
-    callback clicked();
+clear
+echo "=========================================================="
+echo "                 KESTREL ARCH DEPLOYMENT ENGINE                 "
+echo "=========================================================="
+echo ""
 
-    border-radius: 8px;
-    border-width: 1px;
-    border-color: active ? #06B6D4 : (touch.has-hover ? #4B5563 : #1F2937);
-    background: active ? #06B6D410 : (touch.has-hover ? #1F293740 : transparent);
-    
-    animate border-color { duration: 150ms; }
-    animate background { duration: 150ms; }
+TARGET="/mnt"
+ISO_CACHE="/opt/offline_cache"
+GRUB_OS_PROBER="true" 
+EFI_DIR="/boot/efi"
+DISPLAY_MANAGER="sddm"
 
-    HorizontalBox {
-        padding: 12px;
-        spacing: 15px;
-        alignment: start;
+# =====================================================================
+#              CPU ARCHITECTURE DETECTION (v1 vs v3)
+# =====================================================================
+if /usr/lib/ld-linux-x86-64.so.2 --help | grep -q "x86-64-v3 (supported, searched)"; then
+    echo "[INFO] Modern CPU architecture (x86-64-v3) detected. Using CachyOS Kernel."
+    KERNEL_PKG="linux-cachyos linux-cachyos-headers"
+    VMLINUZ="vmlinuz-linux-cachyos"
+    INITRAMFS="initramfs-linux-cachyos.img"
+else
+    echo "[WARNING] Legacy CPU architecture detected. Falling back to Standard Arch Kernel."
+    update_status "WARNING: Legacy CPU architecture detected. Using standard Arch kernel."
+    KERNEL_PKG="linux linux-headers"
+    VMLINUZ="vmlinuz-linux"
+    INITRAMFS="initramfs-linux.img"
+fi
 
-        Rectangle {
-            width: 20px;
-            height: 20px;
-            border-radius: 10px;
-            border-width: 2px;
-            border-color: active ? #06B6D4 : #6B7280;
-            
-            Rectangle {
-                width: 10px;
-                height: 10px;
-                border-radius: 5px;
-                background: #06B6D4;
-                opacity: active ? 1.0 : 0.0;
-                x: (parent.width - self.width) / 2;
-                y: (parent.height - self.height) / 2;
-                animate opacity { duration: 150ms; }
-            }
-        }
+CORE_PKGS="base $KERNEL_PKG linux-firmware scx-scheds efibootmgr os-prober ntfs-3g networkmanager iwd bluez bluez-utils blueman pipewire pipewire-pulse wireplumber brightnessctl flatpak xorg-server sudo zram-generator earlyoom reflector ttf-dejavu ttf-liberation noto-fonts noto-fonts-emoji curl chaotic-keyring chaotic-mirrorlist parted foot git stow qt5-wayland qt6-wayland"
 
-        VerticalBox {
-            alignment: center;
-            spacing: 2px;
-            Text { text: root.title; color: active ? #A5F3FC : #E5E7EB; font-size: 14px; font-weight: 700; }
-            Text { text: root.description; color: active ? #9CA3AF : #6B7280; font-size: 12px; }
-        }
-    }
+if [ -z "$INSTALL_MODE" ]; then
+    update_status "PROGRESS: Determining installation mode..."
+    if [ -d "$ISO_CACHE" ]; then
+        echo "Choose your connection architecture:"
+        echo " [1] ONLINE INSTALL - Download the absolute latest packages."
+        echo " [2] OFFLINE INSTALL - 100% Air-gapped deployment."
+        echo ""
+        while true; do
+            read -r -p "Select mode (1-2): " INSTALL_MODE
+            if [[ "$INSTALL_MODE" =~ ^[1-2]$ ]]; then break; else echo "[WARNING] Invalid option."; fi
+        done
+    else
+        echo "[INFO] Standard Arch Linux ISO Detected."
+        echo "[INFO] Locking deployment to ONLINE mode (No offline cache present)."
+        INSTALL_MODE="1"
+        sleep 3
+    fi
+fi
 
-    touch := TouchArea {
-        clicked => { root.clicked(); }
-        mouse-cursor: pointer;
-    }
-}
+# =====================================================================
+#              DYNAMIC HARDWARE DRIVE DETECTOR
+# =====================================================================
+if [ -z "$TARGET_DRIVE" ]; then
+    clear
+    echo "=========================================================="
+    echo "                 TARGET DISK SELECTION MODULE                "
+    echo "=========================================================="
+    lsblk -d -o NAME,SIZE,MODEL,TYPE | grep -E "disk|nvme|loop|mmc" || true
+    echo "----------------------------------------------------------"
 
-// ==========================================
-// PARTITION VISUALIZER COMPONENT
-// ==========================================
-component PartitionVisualizer inherits VerticalBox {
-    in property <string> disk_name;
-    spacing: 6px;
+    while true; do
+        read -r -p "Type your destination installation disk (e.g., /dev/sda): " TARGET_DRIVE
+        if [ -b "$TARGET_DRIVE" ]; then break; else echo "[ERROR] Device path does not exist. Try again."; fi
+    done
+fi
 
-    Text { text: "Partition layout context for " + root.disk_name; color: #D1D5DB; font-size: 11px; font-weight: 600; }
+umount -R /mnt &>/dev/null || true
+if [[ "$TARGET_DRIVE" =~ [0-9]$ ]]; then PART_PREFIX="p"; else PART_PREFIX=""; fi
 
-    Rectangle {
-        width: 100%; height: 22px; border-radius: 4px; clip: true; background: #1F2937;
-        HorizontalLayout {
-            Rectangle { width: 25%; background: #EF4444; }
-            Rectangle { width: 75%; background: #06B6D4; }
-        }
-    }
-    
-    HorizontalBox {
-        spacing: 15px;
-        HorizontalBox { spacing: 4px; Rectangle { width: 8px; height: 8px; background: #EF4444; border-radius: 2px; } Text { text: "/dev/sda1 (EFI - 512M)"; color: #9CA3AF; font-size: 10px; } }
-        HorizontalBox { spacing: 4px; Rectangle { width: 8px; height: 8px; background: #06B6D4; border-radius: 2px; } Text { text: "/dev/sda2 (Root - Target)"; color: #9CA3AF; font-size: 10px; } }
-    }
-}
-
-export component InstallerWindow inherits Window {
-    title: "Kestrel Arch Deployment Engine";
-    
-    preferred-width: 1024px;
-    preferred-height: 768px;
-    background: #020617; 
-    
-    default-font-family: "Geomini, Segoe UI, Roboto, sans-serif";
-
-    in-out property <int> active_step: 0;
-    
-    in-out property <string> error_message: "";
-    in-out property <bool> show_error_popup: false;
-    
-    property <string> selected_mode: "Choose mode of installation";
-    
-    // List-based Network selection properties
-    in property <[string]> available_networks: ["Home-WiFi-5G", "Office-Guest", "Kestrel-Secure"];
-    property <string> selected_network: "";
-    property <string> wifi_password: "";
-    
-    in property <[string]> available_disks: ["Scanning hardware..."];
-    property <string> selected_disk: root.available_disks[0];
-    property <string> selected_part: "1. WIPE (Erase Entire Disk)";
-    
-    property <string> target_filesystem: "ext4";
-    property <string> replace_partition_path: "";
-    
-    // Specific GUI Mount Point variables
-    property <string> gui_root_part: "/dev/sda2"; // Bound to whatever the user selects in the table
-    property <string> gui_efi_part: "/dev/sda1";  // Bound to whatever the user selects in the table
-    
-    property <string> in_hostname: "";
-    property <string> in_username: "";
-    property <string> in_password: "";
-    property <string> in_root_password: "";
-    
-    property <string> selected_browser: "1. Falkon Browser (Recommended)";
-    property <bool> perf_enabled: true;
-    property <string> selected_de: "Choose your environment";
-    property <string> selected_boot: "1. GRUB";
-
-    property <bool> show_console: false;
-
-    Rectangle {
-        width: 880px;
-        height: 640px;
-        x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
+# =====================================================================
+#              NETWORK ENGAGEMENT ENGINE
+# =====================================================================
+if [ "$INSTALL_MODE" = "1" ] && [ "$NON_INTERACTIVE" != "1" ]; then
+    update_status "PROGRESS: Establishing Network Connection..."
+    while true; do
+        clear
+        if ping -c 1 -W 2 archlinux.org &> /dev/null; then echo "[SUCCESS] Active network connection detected!"; sleep 2; break; fi
         
-        background: #040D14; 
-        border-radius: 20px;
-        border-width: 1px;
-        border-color: #06B6D4; 
-        drop-shadow-color: #06B6D430; 
-        drop-shadow-blur: 25px;
+        WIFI_IFACE=$(iw dev 2>/dev/null | awk '$1=="Interface"{print $2}' | head -n 1) || true
+        if [ -z "$WIFI_IFACE" ]; then
+            read -r -p "No Wi-Fi adapter detected! Switch to OFFLINE mode? (y/N): " ESCAPE_CHOICE
+            if [[ "$ESCAPE_CHOICE" =~ ^[Yy]$ ]]; then 
+                if [ -d "$ISO_CACHE" ]; then INSTALL_MODE="2"; break; else exit 1; fi
+            else exit 1; fi
+        fi
 
-        VerticalBox {
-            padding: 30px;
+        iwctl station "$WIFI_IFACE" scan || true; sleep 2
+        iwctl station "$WIFI_IFACE" get-networks || true
+        read -r -p "SSID Selection (or type CANCEL): " WIFI_SSID
+        
+        if [ "$WIFI_SSID" = "CANCEL" ] || [ -z "$WIFI_SSID" ]; then 
+            if [ -d "$ISO_CACHE" ]; then INSTALL_MODE="2"; break; else exit 1; fi
+        fi
+        read -r -s -p "Enter Wi-Fi Password: " WIFI_PASS; echo ""
+        
+        if [ -z "$WIFI_PASS" ]; then iwctl station "$WIFI_IFACE" connect "$WIFI_SSID" || true
+        else iwctl --passphrase "$WIFI_PASS" station "$WIFI_IFACE" connect "$WIFI_SSID" || true; fi
+        
+        sleep 5
+        if ping -c 1 -W 2 archlinux.org &> /dev/null; then break; fi
+    done
+fi
+
+# =====================================================================
+#              STORAGE PROVISIONING PATHWAY
+# =====================================================================
+clear
+update_status "PROGRESS: Preparing Storage and Partitioning..."
+
+if [ ! -d "$ISO_CACHE" ]; then pacman -Sy --noconfirm ntfs-3g parted gparted >/dev/null 2>&1 || true; fi
+
+FILESYSTEM="${FILESYSTEM:-ext4}"
+PROVISIONING_COMPLETE=0
+RESET_STRATEGY=0
+
+while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
+
+    if [ -z "$INSTALL_STRATEGY" ] || [ "$RESET_STRATEGY" = "1" ]; then
+        echo "=========================================================="
+        echo "          STEP 2: STORAGE PROVISIONING PATHWAY            "
+        echo "=========================================================="
+        echo " [1] WIPE    - Erase entire disk and install fresh."
+        echo " [2] REPLACE - Format a specific target partition."
+        echo " [3] MANUAL  - Launch Partition Manager (GParted/cfdisk)."
+        while true; do 
+            read -r -p "Enter your choice (1-3): " MENU_CHOICE
+            case $MENU_CHOICE in
+                1) INSTALL_STRATEGY="WIPE"; RESET_STRATEGY=0; break ;;
+                2) INSTALL_STRATEGY="REPLACE"; RESET_STRATEGY=0; break ;;
+                3) INSTALL_STRATEGY="MANUAL"; RESET_STRATEGY=0; break ;;
+                *) echo "[WARNING] Invalid option." ;;
+            esac
+        done
+    fi
+
+    echo "STARTING: Executing partitioning strategy: $INSTALL_STRATEGY on $TARGET_DRIVE..."
+
+    case $INSTALL_STRATEGY in
+        "WIPE")
+            echo "====== HARD NUKE: WIPE ENTIRE DRIVE ======"
+            if [ "$NON_INTERACTIVE" != "1" ]; then
+                read -r -p "DANGER: Type 'YES' to confirm erasing $TARGET_DRIVE: " CONFIRM_NUKE
+                [[ "${CONFIRM_NUKE^^}" != "YES" ]] && exit 1
+            fi
+            sleep 2
             
-            HorizontalBox {
-                alignment: start;
-                height: 32px;
-                spacing: 15px;
+            wipefs -a "$TARGET_DRIVE" &>/dev/null || true
+            
+            if [ -d "/sys/firmware/efi" ]; then
+                parted -s "$TARGET_DRIVE" mklabel gpt
+                parted -s -a optimal "$TARGET_DRIVE" mkpart primary fat32 1MiB 1025MiB
+                parted -s "$TARGET_DRIVE" set 1 esp on
+                parted -s -a optimal "$TARGET_DRIVE" mkpart primary "$FILESYSTEM" 1025MiB 100%
                 
-                Image { source: @image-url("logo.png"); width: 32px; height: 32px; image-fit: contain; }
-                Text { text: "KESTREL ARCH"; color: #E5E7EB; font-size: 14px; font-weight: 700; letter-spacing: 2px; vertical-alignment: center; }
-            }
+                partprobe "$TARGET_DRIVE"; udevadm settle; sleep 2
+                ARCH_EFI="${TARGET_DRIVE}${PART_PREFIX}1"
+                ARCH_ROOT="${TARGET_DRIVE}${PART_PREFIX}2"
+                
+                wipefs -a "$ARCH_EFI" &>/dev/null || true
+                wipefs -a "$ARCH_ROOT" &>/dev/null || true
+                
+                echo "[INFO] Formatting $ARCH_EFI to FAT32..."
+                mkfs.vfat -F 32 "$ARCH_EFI"
+                echo "[INFO] Formatting $ARCH_ROOT to $FILESYSTEM..."
+                if [ "$FILESYSTEM" = "btrfs" ]; then mkfs.btrfs -f "$ARCH_ROOT"; else mkfs.ext4 -F "$ARCH_ROOT"; fi
+                
+                mount "$ARCH_ROOT" "$TARGET"
+                mkdir -p "$TARGET/boot/efi"
+                mount -t vfat "$ARCH_EFI" "$TARGET/boot/efi"
+            else
+                parted -s "$TARGET_DRIVE" mklabel msdos
+                parted -s -a optimal "$TARGET_DRIVE" mkpart primary "$FILESYSTEM" 2MiB 100%
+                parted -s "$TARGET_DRIVE" set 1 boot on
+                
+                partprobe "$TARGET_DRIVE"; udevadm settle; sleep 2
+                ARCH_ROOT="${TARGET_DRIVE}${PART_PREFIX}1"
+                
+                wipefs -a "$ARCH_ROOT" &>/dev/null || true
+                
+                echo "[INFO] Formatting $ARCH_ROOT to $FILESYSTEM..."
+                if [ "$FILESYSTEM" = "btrfs" ]; then mkfs.btrfs -f "$ARCH_ROOT"; else mkfs.ext4 -F "$ARCH_ROOT"; fi
+                mount "$ARCH_ROOT" "$TARGET"
+                EFI_DIR="/boot"
+            fi
+            GRUB_OS_PROBER="true"
+            PROVISIONING_COMPLETE=1
+            ;;
+            
+        "REPLACE")
+            echo "====== REPLACE TARGET PARTITION ======"
+            if [ "$NON_INTERACTIVE" != "1" ]; then
+                if [ -z "$ARCH_ROOT" ]; then
+                    lsblk "$TARGET_DRIVE" -o NAME,SIZE,TYPE,FSTYPE
+                    while true; do
+                        read -r -p "Enter partition to FORMAT and REPLACE (e.g., /dev/sda2): " ARCH_ROOT
+                        if [ -b "$ARCH_ROOT" ] && [ "$ARCH_ROOT" != "$TARGET_DRIVE" ]; then break; fi
+                    done
+                fi
+                read -r -p "Type 'NUKE' to erase $ARCH_ROOT: " CONFIRM_NUKE
+                [[ "${CONFIRM_NUKE^^}" != "NUKE" ]] && exit 1
+            else
+                ARCH_ROOT="$GUI_REPLACE_PART"
+                echo "[INFO] GUI Mode active. Targeting $ARCH_ROOT for replacement."
+            fi
+            
+            wipefs -a "$ARCH_ROOT" &>/dev/null || true
+            
+            echo "[INFO] Formatting $ARCH_ROOT to $FILESYSTEM..."
+            if [ "$FILESYSTEM" = "btrfs" ]; then mkfs.btrfs -f "$ARCH_ROOT"; else mkfs.ext4 -F "$ARCH_ROOT"; fi
+            mount "$ARCH_ROOT" "$TARGET"
+            
+            if [ -d "/sys/firmware/efi" ]; then
+                if [ "$NON_INTERACTIVE" != "1" ]; then
+                    if [ -z "$ARCH_EFI" ]; then
+                        while true; do
+                            read -r -p "Enter existing EFI partition path (e.g., /dev/sda1): " ARCH_EFI
+                            if [ -b "$ARCH_EFI" ] && [ "$ARCH_EFI" != "$TARGET_DRIVE" ]; then break; fi
+                        done
+                    fi
+                else
+                    ARCH_EFI="${GUI_EFI_PART:-${TARGET_DRIVE}${PART_PREFIX}1}"
+                fi
+                mkdir -p "$TARGET/boot/efi"
+                mount -t vfat "$ARCH_EFI" "$TARGET/boot/efi"
+            fi
+            GRUB_OS_PROBER="false"
+            PROVISIONING_COMPLETE=1
+            ;;
 
-            Rectangle { height: 10px; } 
-
-            VerticalBox {
-                alignment: center;
-
-                // =========================================================
-                // STEP 0: Landing Page
-                // =========================================================
-                if (root.active_step == 0) : VerticalBox {
-                    alignment: center; spacing: 25px;
-                    VerticalBox {
-                        spacing: 5px;
-                        Text { text: "Kestrel Arch"; font-size: 56px; font-weight: 800; color: #A5F3FC; horizontal-alignment: center; letter-spacing: -1px; }
-                        Text { text: "Installer"; font-size: 56px; font-weight: 800; color: #A5F3FC; horizontal-alignment: center; letter-spacing: -1px; }
-                    }
-                    Text { text: "Efficient. Robust. Custom configurations. Built to scale your infrastructure, every time."; font-size: 13px; color: #9CA3AF; horizontal-alignment: center; }
-                    HorizontalBox { alignment: center; spacing: 20px; GlowingButton { text: "Begin Installation"; primary: true; clicked => { root.active_step = 1; } } }
-                }
-
-                // =========================================================
-                // STEP 1: Installation Mode ONLY
-                // =========================================================
-                if (root.active_step == 1) : VerticalBox {
-                    alignment: center; spacing: 12px; padding-left: 60px; padding-right: 60px;
-                    Text { text: "Deployment Mode"; font-size: 22px; font-weight: 700; color: #A5F3FC; horizontal-alignment: center; }
-                    Rectangle { height: 10px; } 
-
-                    VerticalBox {
-                        spacing: 6px;
-                        Text { text: "Select Installation Mode:"; font-size: 13px; font-weight: 600; color: #D1D5DB; }
-                        ComboBox { 
-                            model: ["Choose mode of installation", "1. Online (Download Latest)", "2. Offline (Fast, Local Cache)"]; 
-                            current-value: root.selected_mode; 
-                            selected(val) => { root.selected_mode = val; } 
-                            height: 38px; 
-                        }
-                        Text { text: "Online mode requires an active internet connection. Offline is air-gapped."; color: #6B7280; font-size: 12px; }
-                    }
+        "MANUAL")
+            echo "====== ADVANCED PROVISIONING ======"
+            if [ "$NON_INTERACTIVE" != "1" ]; then
+                echo "[INFO] Launching Partition Manager..."
+                echo "----------------------------------------------------------"
+                echo "👉 INSTRUCTIONS: Build your partitions, Apply/Write changes,"
+                echo "   and then exit the manager. The installer will automatically resume!"
+                echo "----------------------------------------------------------"
+                sleep 4
+                
+                while true; do
+                    sfdisk -d "$TARGET_DRIVE" > /tmp/kestrel_part_before 2>/dev/null || true
                     
-                    HorizontalBox {
-                        alignment: center; spacing: 15px; padding-top: 20px;
-                        GlowingButton { text: "Back"; primary: false; clicked => { root.active_step = 0; } }
-                        GlowingButton { 
-                            text: "Next Step"; 
-                            primary: true; 
-                            clicked => { 
-                                if (root.selected_mode == "Choose mode of installation") {
-                                    root.error_message = "Please select an Installation Mode before proceeding.";
-                                    root.show_error_popup = true;
-                                } else {
-                                    InstallerLogic.check_network_and_proceed(root.selected_mode);
-                                }
-                            } 
-                        }
-                    }
-                }
-
-                // =========================================================
-                // STEP 2: Dedicated Network Window (List Selection Layout)
-                // =========================================================
-                if (root.active_step == 2) : VerticalBox {
-                    alignment: center; spacing: 12px; padding-left: 40px; padding-right: 40px;
-                    Text { text: "Connect to Internet"; font-size: 22px; font-weight: 700; color: #F59E0B; horizontal-alignment: center; }
-                    Text { text: "Select your Wi-Fi network from the list below to proceed with Online installation."; color: #9CA3AF; font-size: 12px; horizontal-alignment: center; }
-                    Rectangle { height: 5px; } 
-
-                    Rectangle {
-                        height: 160px; width: 100%; border-radius: 8px; border-width: 1px; border-color: #1F2937; background: #020617;
-                        ScrollView {
-                            width: 100%; height: 100%;
-                            VerticalBox {
-                                padding: 8px; spacing: 4px;
-                                
-                                for net in root.available_networks : Rectangle {
-                                    height: 35px; border-radius: 4px;
-                                    background: root.selected_network == net ? #06B6D420 : (net_touch.has-hover ? #1F2937 : transparent);
-                                    border-width: root.selected_network == net ? 1px : 0px;
-                                    border-color: #06B6D4;
-                                    
-                                    HorizontalBox {
-                                        padding-left: 12px; padding-right: 12px; alignment: space-between;
-                                        Text { text: net; color: root.selected_network == net ? #A5F3FC : #D1D5DB; font-size: 13px; font-weight: 600; vertical-alignment: center; }
-                                        Text { text: root.selected_network == net ? "Connected / Selected" : ""; color: #06B6D4; font-size: 11px; vertical-alignment: center; }
-                                    }
-                                    net_touch := TouchArea {
-                                        clicked => { root.selected_network = net; }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    VerticalBox {
-                        spacing: 4px;
-                        Text { text: "Wi-Fi Password (leave blank if open):"; font-size: 12px; font-weight: 600; color: #D1D5DB; }
-                        LineEdit { input-type: password; text: root.wifi_password; edited(val) => { root.wifi_password = val; } height: 35px; }
-                    }
+                    if { [ -n "$WAYLAND_DISPLAY" ] || [ -n "$DISPLAY" ]; } && command -v gparted &> /dev/null; then
+                        gparted "$TARGET_DRIVE" || true
+                    else
+                        cfdisk "$TARGET_DRIVE" || true
+                    fi
                     
-                    HorizontalBox {
-                        alignment: center; spacing: 15px; padding-top: 10px;
-                        GlowingButton { text: "Back"; primary: false; height: 38px; clicked => { root.active_step = 1; } }
-                        GlowingButton { text: "Rescan"; primary: false; height: 38px; clicked => { InstallerLogic.rescan_wifi(); } }
-                        GlowingButton { 
-                            text: "Connect & Continue"; primary: true; height: 38px;
-                            clicked => { 
-                                if (root.selected_network == "") {
-                                    root.error_message = "Please select a Wi-Fi network from the list.";
-                                    root.show_error_popup = true;
-                                } else {
-                                    InstallerLogic.connect_wifi(root.selected_network, root.wifi_password); 
-                                }
-                            } 
-                        }
-                    }
-                }
-
-                // =========================================================
-                // STEP 3: Target Drive Selection Window (With Partition Bar)
-                // =========================================================
-                if (root.active_step == 3) : VerticalBox {
-                    alignment: center; spacing: 12px; padding-left: 60px; padding-right: 60px;
-                    Text { text: "Target Drive Selection"; font-size: 22px; font-weight: 700; color: #A5F3FC; horizontal-alignment: center; }
-                    Text { text: "Choose the physical storage device where Kestrel Arch will be installed."; color: #9CA3AF; font-size: 12px; horizontal-alignment: center; }
+                    sfdisk -d "$TARGET_DRIVE" > /tmp/kestrel_part_after 2>/dev/null || true
                     
-                    VerticalBox {
-                        spacing: 6px;
-                        Text { text: "Available Storage Drives:"; font-size: 12px; font-weight: 600; color: #D1D5DB; }
-                        ComboBox { model: root.available_disks; current-value: root.selected_disk; selected(val) => { root.selected_disk = val; } height: 35px; }
-                    }
-
-                    PartitionVisualizer { disk_name: root.selected_disk; }
-                    
-                    HorizontalBox {
-                        alignment: center; spacing: 15px; padding-top: 15px;
-                        GlowingButton { text: "Back"; primary: false; clicked => { root.active_step = root.selected_mode == "1. Online (Download Latest)" ? 2 : 1; } }
-                        GlowingButton { text: "Next Step"; primary: true; clicked => { root.active_step = 30; } }
-                    }
-                }
-
-                // =========================================================
-                // STEP 30: Partitioning Strategy Window
-                // =========================================================
-                if (root.active_step == 30) : VerticalBox {
-                    alignment: center; spacing: 15px; padding-left: 40px; padding-right: 40px;
-                    Text { text: "Partitioning Strategy"; font-size: 22px; font-weight: 700; color: #A5F3FC; horizontal-alignment: center; }
-                    Text { text: "Select how you would like to structure partitions on " + root.selected_disk; color: #9CA3AF; font-size: 12px; horizontal-alignment: center; }
-                    Rectangle { height: 5px; } 
-
-                    VerticalBox {
-                        spacing: 8px;
+                    if cmp -s /tmp/kestrel_part_before /tmp/kestrel_part_after; then
+                        clear
+                        echo "=========================================================="
+                        echo " [WARNING] No changes were written to the drive!"
+                        echo "=========================================================="
+                        echo " Options:"
+                        echo "  [1] I forgot to apply/save (Go back to manager)"
+                        echo "  [2] I want to proceed anyway (Assign Mount Points)"
+                        echo "  [3] Abort and go back to Main Menu (Select WIPE/REPLACE)"
+                        echo "----------------------------------------------------------"
+                        read -r -p "Choice (1-3): " CFDISK_CHOICE
                         
-                        RadioOption {
-                            title: "Wipe Disk";
-                            description: "Erase the entire drive and automatically build fresh partitions.";
-                            active: root.selected_part == "1. WIPE (Erase Entire Disk)";
-                            clicked => { root.selected_part = "1. WIPE (Erase Entire Disk)"; }
-                        }
-                        
-                        RadioOption {
-                            title: "Replace Partition";
-                            description: "Format a specific target partition without touching the rest of the drive.";
-                            active: root.selected_part == "2. REPLACE (Format Target Partition)";
-                            clicked => { root.selected_part = "2. REPLACE (Format Target Partition)"; }
-                        }
-                        
-                        RadioOption {
-                            title: "Advanced Partition Manager";
-                            description: "Launch native graphical layout manager to customize volumes.";
-                            active: root.selected_part == "3. MANUAL (Advanced Partitioning)";
-                            clicked => { root.selected_part = "3. MANUAL (Advanced Partitioning)"; }
-                        }
-                    }
+                        if [ "$CFDISK_CHOICE" = "1" ]; then continue
+                        elif [ "$CFDISK_CHOICE" = "3" ]; then RESET_STRATEGY=1; break
+                        else break; fi
+                    else break; fi
+                done
+                
+                if [ "$RESET_STRATEGY" = "1" ]; then continue; fi
+                
+                clear
+                echo "====== ASSIGN MOUNT POINTS & FORMATTING ======"
+                lsblk "$TARGET_DRIVE" -o NAME,SIZE,TYPE,FSTYPE
+                echo "----------------------------------------------------------"
+                
+                while true; do
+                    read -r -p "Enter partition for Arch ROOT (e.g., /dev/sda2): " ARCH_ROOT
+                    if [ -z "$ARCH_ROOT" ]; then continue; fi
+                    if [ -b "$ARCH_ROOT" ]; then
+                        read -r -p "Format $ARCH_ROOT? (y/N): " FORMAT_ROOT
+                        if [[ "$FORMAT_ROOT" =~ ^[Yy]$ ]]; then
+                            read -r -p "Select Filesystem (ext4/btrfs) [default: ext4]: " ROOT_FS
+                            ROOT_FS=${ROOT_FS:-ext4}
+                            wipefs -a "$ARCH_ROOT" &>/dev/null || true
+                            if [ "$ROOT_FS" = "btrfs" ]; then mkfs.btrfs -f "$ARCH_ROOT"; else mkfs.ext4 -F "$ARCH_ROOT"; fi
+                        fi
+                        if mount "$ARCH_ROOT" "$TARGET"; then break; else echo "[ERROR] Mount failed."; fi
+                    else echo "[ERROR] Invalid partition path."; fi
+                done
+                
+                if [ -d "/sys/firmware/efi" ]; then
+                    while true; do
+                        read -r -p "Enter EFI partition path (e.g., /dev/sda1): " ARCH_EFI
+                        if [ -z "$ARCH_EFI" ]; then continue; fi
+                        if [ -b "$ARCH_EFI" ]; then
+                            read -r -p "Format $ARCH_EFI to FAT32? (y/N): " FORMAT_EFI
+                            if [[ "$FORMAT_EFI" =~ ^[Yy]$ ]]; then 
+                                wipefs -a "$ARCH_EFI" &>/dev/null || true
+                                mkfs.vfat -F 32 "$ARCH_EFI"
+                            fi
+                            mkdir -p "$TARGET/boot/efi"
+                            if mount -t vfat "$ARCH_EFI" "$TARGET/boot/efi"; then break; else echo "[ERROR] Mount failed."; fi
+                        else echo "[ERROR] Invalid partition path."; fi
+                    done
+                else
+                    mkdir -p "$TARGET/boot"
+                fi
+                
+                read -r -p "Enable OS Prober to detect other Operating Systems? (Y/n): " MANUAL_PROBER
+                if [[ "$MANUAL_PROBER" =~ ^[Nn]$ ]]; then GRUB_OS_PROBER="false"; else GRUB_OS_PROBER="true"; fi
+
+            else
+                echo "[INFO] GUI Advanced Mode active. Applying pre-configured mounts..."
+                
+                if [ -b "$GUI_ROOT_PART" ]; then
+                    wipefs -a "$GUI_ROOT_PART" &>/dev/null || true
+                    echo "[INFO] Formatting $GUI_ROOT_PART to $FILESYSTEM..."
+                    if [ "$FILESYSTEM" = "btrfs" ]; then mkfs.btrfs -f "$GUI_ROOT_PART"; else mkfs.ext4 -F "$GUI_ROOT_PART"; fi
+                    mount "$GUI_ROOT_PART" "$TARGET"
+                else
+                    echo "[ERROR] Invalid or missing GUI ROOT partition."
+                    exit 1
+                fi
+                
+                if [ -d "/sys/firmware/efi" ]; then
+                    if [ -n "$GUI_EFI_PART" ] && [ -b "$GUI_EFI_PART" ]; then
+                        echo "[INFO] Safely mounting $GUI_EFI_PART to /boot/efi (Preserving existing bootloaders)..."
+                        mkdir -p "$TARGET/boot/efi"
+                        mount -t vfat "$GUI_EFI_PART" "$TARGET/boot/efi"
+                    else
+                        echo "[ERROR] UEFI system requires an EFI partition, but GUI did not map one."
+                        exit 1
+                    fi
+                else
+                    mkdir -p "$TARGET/boot"
+                fi
+                GRUB_OS_PROBER="true"
+            fi
+            
+            PROVISIONING_COMPLETE=1
+            ;;
+    esac
+done
+
+# =====================================================================
+#              ACCOUNT CREATION
+# =====================================================================
+update_status "PROGRESS: Configuring User Accounts..."
+clear
+echo "=========================================================="
+echo "              STEP 3: ACCOUNT CREATION                    "
+echo "=========================================================="
+if [ -z "$system_hostname" ]; then
+    read -r -p "Enter Hostname: " system_hostname
+    system_hostname=$(printf '%s\n' "$system_hostname" | tr -cd 'a-zA-Z0-9-' | tr '[:upper:]' '[:lower:]')
+    [ -z "$system_hostname" ] && system_hostname="kestrel-node"
+fi
+if [ -z "$username" ]; then
+    read -r -p "Enter new username: " username
+    username=$(printf '%s\n' "$username" | tr -cd 'a-z0-9_')
+    [ -z "$username" ] && username="kestrel_user"
+fi
+if [ -z "$user_password" ]; then
+    while true; do read -r -s -p "Enter password for $username: " user_password; echo ""; [ -n "$user_password" ] && break; done
+fi
+if [ -z "$root_password" ]; then
+    read -r -p "Use same password for 'root'? [Y/n]: " SAME_ROOT
+    if [[ "$SAME_ROOT" =~ ^[Nn]$ ]]; then
+        while true; do read -r -s -p "Enter root password: " root_password; echo ""; [ -n "$root_password" ] && break; done
+    else root_password="$user_password"; fi
+fi
+
+# =====================================================================
+#              SOFTWARE CONFIGURATION & DE MATRIX
+# =====================================================================
+update_status "PROGRESS: Configuring Software Matrix..."
+clear
+if [ -z "$BROWSER_CHOICE" ]; then
+    if [ "$INSTALL_MODE" = "1" ]; then
+        echo "Select your primary web browser:"
+        echo " [1] Zen Browser (Recommended)"
+        echo " [2] LibreWolf"
+        echo " [3] Firefox"
+        echo " [4] Brave"
+        echo " [5] Falkon Browser (Recommended for KDE/Arch)"
+        read -r -p "Choice (1-5): " BROWSER_CHOICE
+    else
+        echo "[INFO] Offline Mode: Defaulting to Falkon Browser."
+        BROWSER_CHOICE="5"
+        sleep 3
+    fi
+fi
+
+case $BROWSER_CHOICE in 
+    1) CORE_PKGS="$CORE_PKGS zen-browser-bin" ;;
+    2) CORE_PKGS="$CORE_PKGS librewolf" ;; 
+    3) CORE_PKGS="$CORE_PKGS firefox" ;; 
+    4) CORE_PKGS="$CORE_PKGS brave-bin" ;; 
+    5) CORE_PKGS="$CORE_PKGS falkon" ;;
+esac
+
+if [ -z "$PERF_CHOICE" ]; then read -r -p "Apply Hyper-Performance Matrix? (ZRAM, Fast I/O) [Y/n]: " PERF_CHOICE; fi
+
+UCODE_IMG=""
+if grep -q "AuthenticAMD" /proc/cpuinfo; then CORE_PKGS="$CORE_PKGS amd-ucode"; UCODE_IMG="amd-ucode.img"; elif grep -q "GenuineIntel" /proc/cpuinfo; then CORE_PKGS="$CORE_PKGS intel-ucode"; UCODE_IMG="intel-ucode.img"; fi
+
+HAS_NVIDIA=0; HAS_INTEGRATED=0
+if lspci | grep -iq nvidia; then CORE_PKGS="$CORE_PKGS nvidia nvidia-utils nvidia-prime"; HAS_NVIDIA=1; fi
+if lspci | grep -E -iq "amd|intel"; then HAS_INTEGRATED=1; fi
+
+if [ "$HAS_NVIDIA" -eq 1 ] && [ "$HAS_INTEGRATED" -eq 1 ]; then
+    CORE_PKGS="$CORE_PKGS switcheroo-control"
+fi
+
+if lspci | grep -i vga | grep -iq amd; then CORE_PKGS="$CORE_PKGS xf86-video-amdgpu"; fi
+if lspci | grep -i vga | grep -iq intel; then CORE_PKGS="$CORE_PKGS intel-media-driver"; fi
+
+if [ -z "$DE_CHOICE" ]; then
+    if [ "$INSTALL_MODE" = "2" ]; then
+        echo "=== OFFLINE DESKTOP ENVIRONMENT SELECTOR ==="
+        echo " [1] Hyprland   - A visually pleasing dynamic tiling Wayland compositor."
+        echo " [2] KDE Plasma - A comprehensive, flexible, highly customizable desktop environment."
+        echo " [3] XFCE       - Modern, lightweight, stable, traditional drop-down layout."
+        while true; do read -r -p "Choice (1-3): " DE_CHOICE; [[ "$DE_CHOICE" =~ ^[1-3]$ ]] && break; done
+    else
+        echo "=== ONLINE DESKTOP ENVIRONMENT SELECTOR ==="
+        echo " [1] Hyprland   - Visually pleasing Wayland compositor using dynamic tiling."
+        echo " [2] KDE Plasma - Flexible desktop offering multiple styles of menus and KWin."
+        echo " [3] XFCE       - Lightweight and flexible core with traditional desktop flow."
+        echo " [4] GNOME      - User-friendly desktop environment with a modern touch layout."
+        echo " [5] Sway       - Tiling Wayland compositor; dynamic drop-in i3 upgrade."
+        echo " [6] i3-wm      - Popular X11 tiling manager leveraging clean text configurations."
+        echo " [7] Cinnamon   - Traditional desktop paradigm balancing advanced internal features."
+        echo " [8] Niri       - Scrollable tiling Wayland compositor optimizing fluid layout grid."
+        echo " [9] Qtile      - Highly configurable X11/Wayland environment scripted entirely in Python."
+        echo " [10] Wayfire    - Wlroots Wayland engine mixing structural performance aesthetics."
+        echo " [11] bspwm      - Binary space partitioning X11 architecture tracking strict window layouts."
+        echo " [12] Budgie     - Clean and elegant GTK interface prioritizing absolute modern ergonomics."
+        echo " [13] Cosmic     - Modern performance Rust workspace constructed for absolute responsiveness."
+        echo " [14] LXDE       - Fast, lightweight X11 environment tailored heavily for legacy hardware."
+        echo " [15] LXQt       - Blazing fast lightweight environment engineered entirely on the Qt stack."
+        echo " [16] Matede     - Classic GNOME 2 fork tracking legacy desktop layouts natively."
+        echo " [17] Openbox    - Highly custom X11 window manager featuring extensive internal canvas styling."
+        while true; do read -r -p "Choice (1-17): " DE_CHOICE; [[ "$DE_CHOICE" =~ ^[1-9]$|^1[0-7]$ ]] && break; done
+    fi
+fi
+
+case $DE_CHOICE in
+    1) CORE_PKGS="$CORE_PKGS hyprland waybar kitty rofi-wayland xdg-desktop-portal-hyprland polkit-kde-agent thunar gvfs sddm" ;;
+    2) CORE_PKGS="$CORE_PKGS plasma-desktop plasma-workspace plasma-nm power-profiles-daemon kscreen konsole dolphin ark kate spectacle discover packagekit-qt6 sddm-kcm sddm" ;;
+    3) CORE_PKGS="$CORE_PKGS xfce4 xfce4-goodies xfce4-terminal sddm" ;;
+    4) CORE_PKGS="$CORE_PKGS gnome gnome-tweaks gdm"; DISPLAY_MANAGER="gdm" ;;
+    5) CORE_PKGS="$CORE_PKGS sway swaybg swaylock swayidle waybar kitty rofi-wayland xdg-desktop-portal-wlr polkit-kde-agent thunar gvfs sddm" ;;
+    6) CORE_PKGS="$CORE_PKGS i3-wm i3status i3lock dmenu kitty picom feh polkit-gnome thunar gvfs sddm" ;;
+    7) CORE_PKGS="$CORE_PKGS cinnamon nemo-fileroller gnome-terminal sddm" ;;
+    8) CORE_PKGS="$CORE_PKGS niri waybar kitty rofi-wayland xdg-desktop-portal-gnome polkit-kde-agent thunar gvfs sddm" ;;
+    9) CORE_PKGS="$CORE_PKGS qtile kitty rofi-wayland xdg-desktop-portal-wlr polkit-kde-agent thunar gvfs sddm" ;;
+    10) CORE_PKGS="$CORE_PKGS wayfire wayfire-plugins-extra kitty rofi-wayland xdg-desktop-portal-wlr polkit-kde-agent thunar gvfs sddm" ;;
+    11) CORE_PKGS="$CORE_PKGS bspwm sxhkd kitty dmenu picom feh polkit-gnome thunar gvfs sddm" ;;
+    12) CORE_PKGS="$CORE_PKGS budgie-desktop sddm" ;;
+    13) CORE_PKGS="$CORE_PKGS cosmic sddm" ;;
+    14) CORE_PKGS="$CORE_PKGS lxde-common lxsession openbox sddm" ;;
+    15) CORE_PKGS="$CORE_PKGS lxqt lxqt-session sddm" ;;
+    16) CORE_PKGS="$CORE_PKGS mate mate-extra sddm" ;;
+    17) CORE_PKGS="$CORE_PKGS openbox obconf tint2 kitty dmenu feh sddm" ;;
+esac
+
+# =====================================================================
+#              BOOT MANAGER CONFIGURATION STAGE
+# =====================================================================
+clear
+if [ -z "$BOOT_CHOICE" ]; then
+    echo "=== BOOT MANAGER CONFIGURATION MATRIX ==="
+    echo " [1] GRUB          - Flexible multi-boot loader; supports auto BTRFS snapshot lists."
+    echo " [2] systemd-boot  - Light minimalist EFI manager tracking kernel slots in loader.conf."
+    echo " [3] rEFInd        - Rich graphical shell automatically identifying boot options."
+    echo " [4] Limine        - Modern lightning-fast system deployed cleanly via limine.conf."
+    while true; do read -r -p "Choice (1-4): " BOOT_CHOICE; [[ "$BOOT_CHOICE" =~ ^[1-4]$ ]] && break; done
+fi
+
+# Gatekeeper: systemd-boot & rEFInd require UEFI
+if [ ! -d "/sys/firmware/efi" ]; then
+    if [ "$BOOT_CHOICE" = "2" ] || [ "$BOOT_CHOICE" = "3" ]; then
+        echo "[WARNING] systemd-boot and rEFInd require UEFI. Falling back to GRUB for Legacy BIOS."
+        update_status "WARNING: Selected bootloader requires UEFI. Enforcing GRUB fallback..."
+        BOOT_CHOICE="1"
+        sleep 2
+    fi
+fi
+
+case $BOOT_CHOICE in
+    1) CORE_PKGS="$CORE_PKGS grub" ;;
+    2) : ;; 
+    3) CORE_PKGS="$CORE_PKGS refind" ;;
+    4) CORE_PKGS="$CORE_PKGS limine" ;;
+esac
+
+# =====================================================================
+#              REPOSITORY INITIALIZATION & FAILSAFE INJECTOR
+# =====================================================================
+update_status "PROGRESS: Initializing package databases..."
+
+if [ "$INSTALL_MODE" = "1" ]; then
+    echo "[INFO] Syncing Arch & Chaotic-AUR package databases..."
+    timedatectl set-ntp true 2>/dev/null || true
+    
+    if command -v reflector &> /dev/null; then
+        reflector --latest 10 --sort rate --save /etc/pacman.d/mirrorlist &>/dev/null || echo 'Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch' > /etc/pacman.d/mirrorlist
+    else 
+        echo 'Server = https://geo.mirror.pkgbuild.com/$repo/os/$arch' > /etc/pacman.d/mirrorlist
+    fi
+
+    pacman-key --init >/dev/null 2>&1 || true
+    pacman-key --populate archlinux >/dev/null 2>&1 || true
+    pacman-key --recv-key 3056513887B78AEB --keyserver hkps://keyserver.ubuntu.com >/dev/null 2>&1 || true
+    pacman-key --lsign-key 3056513887B78AEB >/dev/null 2>&1 || true
+    pacman -U 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst' 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst' --noconfirm >/dev/null 2>&1 || true
+
+    if ! grep -q "chaotic-aur" /etc/pacman.conf; then
+        echo -e "\n[chaotic-aur]\nSigLevel = Optional TrustAll\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> /etc/pacman.conf
+    fi
+
+    pacman -Sy --noconfirm >/dev/null 2>&1 || true
+fi
+
+update_status "PROGRESS: Verifying package integrity against Arch mirrors..."
+
+VALIDATED_PACKAGES=()
+for pkg in $CORE_PKGS; do
+    if [ "$INSTALL_MODE" = "2" ]; then
+        VALIDATED_PACKAGES+=("$pkg")
+    else
+        if pacman -Si "$pkg" &> /dev/null || pacman -Sg "$pkg" &> /dev/null; then
+            VALIDATED_PACKAGES+=("$pkg")
+        else
+            echo "[WARNING] Package '$pkg' is missing or renamed. Skipping optional package."
+        fi
+    fi
+done
+
+# =====================================================================
+#              INSTALLATION EXECUTION
+# =====================================================================
+clear
+update_status "PROGRESS: Installing Base System (Pacstrap)..."
+sed -i 's/^#Color/Color\nILoveCandy/' /etc/pacman.conf 2>/dev/null || true
+sed -i 's/^#ParallelDownloads.*/ParallelDownloads = 10/' /etc/pacman.conf 2>/dev/null || true
+
+echo "STARTING: Running pacstrap (Installing base system)..."
+
+if [ "$INSTALL_MODE" = "2" ]; then
+    cat << EOF > /tmp/offline-pacman.conf
+[options]
+Architecture = auto
+SigLevel = Optional TrustAll
+[kestrel-offline]
+SigLevel = Optional TrustAll
+Server = file://$ISO_CACHE/
+EOF
+    mkdir -p "$TARGET/var/cache/pacman/pkg"
+    cp -n "$ISO_CACHE"/* "$TARGET/var/cache/pacman/pkg/" 2>/dev/null || true
+    
+    echo "[INFO] Executing Offline Pacstrap Phase..."
+    pacstrap -C /tmp/offline-pacman.conf -K "$TARGET" --noconfirm "${VALIDATED_PACKAGES[@]}"
+    
+    cp /etc/pacman.conf "$TARGET/etc/pacman.conf"
+else
+    trap - ERR 
+    DOWNLOAD_SUCCESS=0
+    while [ "$DOWNLOAD_SUCCESS" -eq 0 ]; do
+        rm -f "$TARGET/var/lib/pacman/db.lck" 2>/dev/null || true
+        
+        echo "[INFO] Executing Online Pacstrap Phase..."
+        if pacstrap -K "$TARGET" --noconfirm "${VALIDATED_PACKAGES[@]}"; then 
+            DOWNLOAD_SUCCESS=1; 
+        else 
+            update_status "WARNING: Pacstrap failed (mirror timeout). Retrying in 5 seconds..."
+            echo "[WARNING] Pacstrap failed. Retrying in 5 seconds..."
+            sleep 5
+        fi
+    done
+    trap 'error_handler $? $LINENO' ERR 
+fi
+
+mkdir -p "$TARGET/etc/pacman.d"
+if ! grep -q "chaotic-aur" "$TARGET/etc/pacman.conf"; then
+    echo -e "\n[chaotic-aur]\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> "$TARGET/etc/pacman.conf"
+fi
+genfstab -U "$TARGET" >> "$TARGET/etc/fstab"
+
+# =====================================================================
+#              CHROOT SYSTEM CONFIGURATION & TARGET INITIALIZATION
+# =====================================================================
+update_status "PROGRESS: Configuring Base System and Chroot..."
+arch-chroot "$TARGET" useradd -m -G wheel -s /bin/bash "$username"
+printf '%s:%s\n' "$username" "$user_password" | arch-chroot "$TARGET" chpasswd
+printf '%s:%s\n' "root" "$root_password" | arch-chroot "$TARGET" chpasswd
+printf '%s\n' "$system_hostname" > "$TARGET/etc/hostname"
+echo -e "127.0.0.1 localhost\n::1 localhost\n127.0.1.1 ${system_hostname}.localdomain ${system_hostname}" > "$TARGET/etc/hosts"
+
+mkdir -p "$TARGET/etc/sudoers.d"
+echo "%wheel ALL=(ALL:ALL) ALL" > "$TARGET/etc/sudoers.d/wheel"
+chmod 440 "$TARGET/etc/sudoers.d/wheel"
+
+echo "en_US.UTF-8 UTF-8" > "$TARGET/etc/locale.gen"
+arch-chroot "$TARGET" locale-gen
+echo "LANG=en_US.UTF-8" > "$TARGET/etc/locale.conf"
+
+LIVE_KEYMAP=$(localectl status 2>/dev/null | grep "VC Keymap" | awk '{print $3}' || true)
+[ -z "$LIVE_KEYMAP" ] && LIVE_KEYMAP="us"
+printf 'KEYMAP=%s\n' "$LIVE_KEYMAP" > "$TARGET/etc/vconsole.conf"
+arch-chroot "$TARGET" ln -sf /usr/share/zoneinfo/UTC /etc/localtime
+arch-chroot "$TARGET" hwclock --systohc
+
+if [ "$INSTALL_MODE" = "1" ]; then
+    mkdir -p "$TARGET/var/lib/iwd" "$TARGET/etc/NetworkManager/conf.d"
+    cp -r /var/lib/iwd/* "$TARGET/var/lib/iwd/" 2>/dev/null || true
+    echo -e "[device]\nwifi.backend=iwd" > "$TARGET/etc/NetworkManager/conf.d/wifi_backend.conf"
+fi
+
+arch-chroot "$TARGET" systemctl enable ${DISPLAY_MANAGER}.service NetworkManager.service iwd.service bluetooth.service systemd-timesyncd.service scx.service switcheroo-control.service || true
+arch-chroot "$TARGET" systemctl mask systemd-time-wait-sync.service
+
+mkdir -p "$TARGET/etc/bluetooth"
+echo -e "[Policy]\nAutoEnable=true" > "$TARGET/etc/bluetooth/main.conf"
+
+if [ "$HAS_NVIDIA" -eq 1 ] && [ "$HAS_INTEGRATED" -eq 1 ]; then
+    echo "[INFO] Injecting hardware hybrid graphics modules settings..."
+    mkdir -p "$TARGET/etc/modprobe.d"
+    echo "options nvidia \"NVreg_DynamicPowerManagement=0x02\"" > "$TARGET/etc/modprobe.d/nvidia.conf"
+    
+    mkdir -p "$TARGET/etc/udev/rules.d"
+    cat << 'EOF' > "$TARGET/etc/udev/rules.d/80-nvidia-pm.rules"
+ACTION=="add", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x030000", ATTR{power/control}="auto"
+ACTION=="add", SUBSYSTEM=="pci", ATTR{vendor}=="0x10de", ATTR{class}=="0x040300", ATTR{power/control}="auto"
+EOF
+fi
+
+cat << 'EOF' >> "$TARGET/home/$username/.bashrc"
+alias ls='ls --color=auto'
+alias grep='grep --color=auto'
+alias pacman='sudo pacman --color auto'
+alias update='sudo pacman -Syu'
+PS1='\[\e[1;36m\]\u@\h\[\e[0m\]:\[\e[1;34m\]\w\[\e[0m\]\$ '
+EOF
+arch-chroot "$TARGET" chown -R "$username:$username" "/home/$username"
+
+if [[ "$PERF_CHOICE" =~ ^[Yy]$ || -z "$PERF_CHOICE" ]]; then
+    arch-chroot "$TARGET" systemctl enable earlyoom.service || true
+    sed -i 's/#MAKEFLAGS="-j2"/MAKEFLAGS="-j$(nproc)"/' "$TARGET/etc/makepkg.conf"
+    sed -i 's/^COMPRESSZST=.*/COMPRESSZST=(zstd -c -T0 -)/' "$TARGET/etc/makepkg.conf"
+    sed -i 's/^#Color/Color\nILoveCandy/' "$TARGET/etc/pacman.conf" 2>/dev/null || true
+    sed -i 's/^#ParallelDownloads.*/ParallelDownloads = 10/' "$TARGET/etc/pacman.conf" 2>/dev/null || true
+    echo -e "[zram0]\nzram-size = ram / 2\ncompression-algorithm = zstd" > "$TARGET/etc/systemd/zram-generator.conf"
+    if [ "$(lsblk -nd -o ROTA "$TARGET_DRIVE" | head -n 1)" = "0" ]; then arch-chroot "$TARGET" systemctl enable fstrim.timer || true; fi
+fi
+
+# =====================================================================
+#              CHROOT PROVISIONING: BOOT MANAGERS DEPLOYMENT
+# =====================================================================
+update_status "PROGRESS: Installing Bootloader Framework..."
+echo "STARTING: Installing and deploying selected boot loader framework..."
+ROOT_UUID=$(blkid -s UUID -o value "$(lsblk -ln -p -o NAME "$TARGET_DRIVE" | grep -E "^${TARGET_DRIVE}${PART_PREFIX}[0-9]+" | sort -V | tail -n 1)")
+
+NVIDIA_CMDLINE=""
+if [ "$HAS_NVIDIA" -eq 1 ]; then
+    NVIDIA_CMDLINE=" nvidia-drm.modeset=1"
+fi
+
+case $BOOT_CHOICE in
+    1)
+        # GRUB (Fully BIOS/UEFI Compatible Native)
+        echo "GRUB_DISABLE_OS_PROBER=$GRUB_OS_PROBER" >> "$TARGET/etc/default/grub"
+        sed -i "s/^GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT=\"nowatchdog zswap.enabled=0 quiet splash mitigations=off${NVIDIA_CMDLINE}\"/" "$TARGET/etc/default/grub"
+        if [ -d "/sys/firmware/efi" ]; then
+            arch-chroot "$TARGET" grub-install --target=x86_64-efi --efi-directory="$EFI_DIR" --bootloader-id=KestrelArch --recheck
+        else
+            arch-chroot "$TARGET" grub-install --target=i386-pc "$TARGET_DRIVE" --recheck
+        fi
+        arch-chroot "$TARGET" grub-mkconfig -o /boot/grub/grub.cfg
+        ;;
+    2)
+        # systemd-boot (UEFI Only)
+        arch-chroot "$TARGET" bootctl install
+        echo -e "default arch.conf\ntimeout 5" > "$TARGET/boot/loader/loader.conf"
+        
+        {
+            echo "title Kestrel Arch"
+            echo "linux /$VMLINUZ"
+            [ -n "$UCODE_IMG" ] && echo "initrd /${UCODE_IMG}"
+            echo "initrd /$INITRAMFS"
+            echo "options root=UUID=${ROOT_UUID} rw nowatchdog zswap.enabled=0 quiet splash mitigations=off${NVIDIA_CMDLINE}"
+        } > "$TARGET/boot/loader/entries/arch.conf"
+        ;;
+    3)
+        # rEFInd (UEFI Only)
+        arch-chroot "$TARGET" refind-install
+        UCODE_STR=""
+        [ -n "$UCODE_IMG" ] && UCODE_STR="initrd=${UCODE_IMG} "
+        echo "\"Boot using default options\" \"root=UUID=${ROOT_UUID} rw ${UCODE_STR}initrd=${INITRAMFS} nowatchdog zswap.enabled=0 quiet splash mitigations=off${NVIDIA_CMDLINE}\"" > "$TARGET/boot/refind_linux.conf"
+        ;;
+    4)
+        # LIMINE (Universal UEFI/BIOS with Custom Multi-Boot Prober)
+        UCODE_STR=""
+        [ -n "$UCODE_IMG" ] && UCODE_STR="module_path: boot():/${UCODE_IMG}\n    "
+        
+        cat << EOF > "$TARGET/boot/limine.conf"
+timeout: 5
+default_entry: 1
+
+:Kestrel Arch
+    protocol: linux
+    kernel_path: boot():/$VMLINUZ
+    ${UCODE_STR}module_path: boot():/$INITRAMFS
+    cmdline: root=UUID=${ROOT_UUID} rw nowatchdog zswap.enabled=0 quiet splash mitigations=off${NVIDIA_CMDLINE}
+EOF
+
+        if [ -d "/sys/firmware/efi" ]; then
+            # --- UEFI LIMINE DEPLOYMENT & CHAINLOADING ---
+            mkdir -p "$TARGET/boot/efi/EFI/BOOT"
+            cp "$TARGET/usr/share/limine/BOOTX64.EFI" "$TARGET/boot/efi/EFI/BOOT/BOOTX64.EFI"
+            
+            if [ "$GRUB_OS_PROBER" = "true" ]; then
+                update_status "PROGRESS: Scanning EFI for other Operating Systems..."
+                echo "[INFO] Searching for existing UEFI bootloaders..."
+                
+                # Dynamically scans the EFI partition for OTHER bootloaders (Windows, Ubuntu, Fedora, etc)
+                for efi_file in $(find "$TARGET/boot/efi/EFI" -iname "*.efi" -type f 2>/dev/null || true); do
+                    # Strip the mount path so we just get /EFI/...
+                    rel_path=$(echo "$efi_file" | sed "s|$TARGET/boot/efi||")
                     
-                    HorizontalBox {
-                        alignment: center; spacing: 15px; padding-top: 15px;
-                        GlowingButton { text: "Back"; primary: false; clicked => { root.active_step = 3; } }
-                        GlowingButton { 
-                            text: "Next Step"; 
-                            primary: true; 
-                            clicked => { 
-                                if (root.selected_part == "1. WIPE (Erase Entire Disk)") { root.active_step = 31; } 
-                                else if (root.selected_part == "2. REPLACE (Format Target Partition)") { root.active_step = 32; } 
-                                else { root.active_step = 33; }
-                            } 
-                        }
-                    }
-                }
-
-                // =========================================================
-                // STEP 31: Wipe Specific Options Window
-                // =========================================================
-                if (root.active_step == 31) : VerticalBox {
-                    alignment: center; spacing: 15px; padding-left: 60px; padding-right: 60px;
-                    Text { text: "Configure Disk Wipe"; font-size: 22px; font-weight: 700; color: #A5F3FC; horizontal-alignment: center; }
+                    # Ignore Limine's own bootloader, systemd fallbacks, and standard bootx64.efi
+                    if echo "$rel_path" | grep -iqE "bootx64.efi|systemd-boot|limine"; then continue; fi
                     
-                    VerticalBox {
-                        spacing: 10px;
-                        Text { text: "⚠️ ERASING ENTIRE DISK"; color: #EF4444; font-size: 16px; font-weight: 800; horizontal-alignment: center; }
-                        Text { text: "All data on " + root.selected_disk + " will be completely destroyed."; color: #9CA3AF; horizontal-alignment: center; wrap: word-wrap; }
-                    }
-
-                    VerticalBox {
-                        spacing: 6px;
-                        Text { text: "Select Base Filesystem:"; font-size: 13px; font-weight: 600; color: #D1D5DB; }
-                        ComboBox { model: ["ext4", "btrfs"]; current-value: root.target_filesystem; selected(val) => { root.target_filesystem = val; } height: 38px; }
-                    }
-
-                    HorizontalBox {
-                        alignment: center; spacing: 15px; padding-top: 20px;
-                        GlowingButton { text: "Back"; primary: false; clicked => { root.active_step = 30; } }
-                        GlowingButton { text: "Confirm & Continue"; primary: true; clicked => { root.active_step = 4; } }
-                    }
-                }
-
-                // =========================================================
-                // STEP 32: Replace Partition (With Partition Bar)
-                // =========================================================
-                if (root.active_step == 32) : VerticalBox {
-                    alignment: center; spacing: 10px; padding-left: 60px; padding-right: 60px;
-                    Text { text: "Replace Partition"; font-size: 20px; font-weight: 700; color: #A5F3FC; horizontal-alignment: center; }
-
-                    PartitionVisualizer { disk_name: root.selected_disk; }
-
-                    VerticalBox {
-                        spacing: 4px;
-                        Text { text: "Enter target partition path (e.g., /dev/sda2):"; font-size: 12px; font-weight: 600; color: #D1D5DB; }
-                        LineEdit { text: root.replace_partition_path; edited(val) => { root.replace_partition_path = val; } height: 35px; }
-                    }
-
-                    VerticalBox {
-                        spacing: 4px;
-                        Text { text: "Select Filesystem:"; font-size: 12px; font-weight: 600; color: #D1D5DB; }
-                        ComboBox { model: ["ext4", "btrfs"]; current-value: root.target_filesystem; selected(val) => { root.target_filesystem = val; } height: 35px; }
-                    }
-
-                    HorizontalBox {
-                        alignment: center; spacing: 15px; padding-top: 10px;
-                        GlowingButton { text: "Back"; primary: false; clicked => { root.active_step = 30; } }
-                        GlowingButton { 
-                            text: "Confirm & Continue"; 
-                            primary: true; 
-                            clicked => { 
-                                if (root.replace_partition_path == "") {
-                                    root.error_message = "Please provide the target partition path (e.g., /dev/sda2).";
-                                    root.show_error_popup = true;
-                                } else {
-                                    root.active_step = 4; 
-                                }
-                            } 
-                        }
-                    }
-                }
-
-                // =========================================================
-                // STEP 33: Advanced Partition Manager Window (GParted Data Loop)
-                // =========================================================
-                if (root.active_step == 33) : VerticalBox {
-                    alignment: start; spacing: 12px; padding-left: 10px; padding-right: 10px;
+                    # Extract the OS name from the folder (e.g. /EFI/ubuntu/grubx64.efi -> ubuntu)
+                    os_name=$(echo "$rel_path" | awk -F'/' '{print $3}')
                     
-                    HorizontalBox {
-                        alignment: space-between;
-                        HorizontalBox {
-                            spacing: 10px;
-                            Text { text: "Storage device:"; color: #D1D5DB; font-size: 13px; font-weight: 600; vertical-alignment: center; }
-                            ComboBox { model: root.available_disks; current-value: root.selected_disk; selected(val) => { root.selected_disk = val; } width: 280px; height: 32px; }
-                        }
-                    }
+                    echo "[INFO] Found potential OS at: $rel_path. Adding to Limine."
+                    echo -e "\n:$os_name (Chainload)\n    protocol: efi\n    path: boot():$rel_path" >> "$TARGET/boot/limine.conf"
+                done
+            fi
+        else
+            # --- LEGACY BIOS LIMINE DEPLOYMENT ---
+            update_status "PROGRESS: Executing Limine BIOS configuration..."
+            cp "$TARGET/usr/share/limine/limine-bios.sys" "$TARGET/boot/" 2>/dev/null || true
+            arch-chroot "$TARGET" limine bios-install "$TARGET_DRIVE" || true
+            
+            # Simple BIOS chainload for Windows if MBR is detected
+            if [ "$GRUB_OS_PROBER" = "true" ]; then
+                if arch-chroot "$TARGET" fdisk -l "$TARGET_DRIVE" | grep -q "HPFS/NTFS"; then
+                    echo "[INFO] NTFS Partition detected on BIOS system. Adding chainload entry..."
+                    echo -e "\n:Windows (BIOS)\n    protocol: chainload\n    drive: 1\n    partition: 1" >> "$TARGET/boot/limine.conf"
+                fi
+            fi
+        fi
+        ;;
+esac
 
-                    Rectangle {
-                        border-width: 1px; border-color: #06B6D4; border-radius: 6px; background: #020617; height: 260px;
-                        VerticalBox {
-                            Rectangle {
-                                background: #0F172A; height: 30px;
-                                HorizontalBox {
-                                    padding-left: 10px; padding-right: 10px; spacing: 10px;
-                                    Text { text: "Name"; width: 140px; color: #E5E7EB; font-size: 11px; font-weight: 700; vertical-alignment: center; }
-                                    Text { text: "File System"; width: 80px; color: #E5E7EB; font-size: 11px; font-weight: 700; vertical-alignment: center; }
-                                    Text { text: "File System Label"; width: 110px; color: #E5E7EB; font-size: 11px; font-weight: 700; vertical-alignment: center; }
-                                    Text { text: "Mount Point"; width: 90px; color: #E5E7EB; font-size: 11px; font-weight: 700; vertical-alignment: center; }
-                                    Text { text: "Size"; color: #E5E7EB; font-size: 11px; font-weight: 700; vertical-alignment: center; horizontal-alignment: right; }
-                                }
-                            }
-                            ScrollView {
-                                VerticalBox {
-                                    padding: 8px; spacing: 4px;
-                                    for part in InstallerLogic.current_partitions : Rectangle {
-                                        height: 28px; background: #1F293750; border-radius: 3px;
-                                        HorizontalBox {
-                                            padding-left: 8px; padding-right: 8px; spacing: 10px;
-                                            HorizontalBox { spacing: 6px; width: 140px; alignment: start; Rectangle { width: 10px; height: 10px; background: part.color_hex; border-radius: 2px; } Text { text: part.name; color: #D1D5DB; font-size: 12px; vertical-alignment: center; } }
-                                            Text { text: part.fstype; width: 80px; color: #D1D5DB; font-size: 12px; vertical-alignment: center; }
-                                            Text { text: part.label; width: 110px; color: #D1D5DB; font-size: 12px; vertical-alignment: center; }
-                                            Text { text: part.mountpoint; width: 90px; color: #D1D5DB; font-size: 12px; vertical-alignment: center; }
-                                            Text { text: part.size; color: #D1D5DB; font-size: 12px; vertical-alignment: center; horizontal-alignment: right; }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+update_status "COMPLETE"
+echo "=========================================================="
+echo "   KESTREL ARCH DEPLOYED! REBOOTING IN 5 SECONDS...       "
+echo "=========================================================="
+sleep 5
 
-                    HorizontalBox {
-                        alignment: space-between;
-                        Text { text: "Use GParted to visually format your layout, then close it to refresh."; color: #F59E0B; font-size: 11px; vertical-alignment: center; }
-                        GlowingButton { 
-                            text: "Launch GParted"; primary: false; width: 140px; height: 32px; 
-                            clicked => { InstallerLogic.launch_gparted(root.selected_disk); } 
-                        }
-                    }
+eject /dev/sr0 || true
 
-                    HorizontalBox {
-                        alignment: end; spacing: 12px; padding-top: 5px;
-                        GlowingButton { text: "Back"; primary: false; width: 100px; height: 35px; clicked => { root.active_step = 30; } }
-                        GlowingButton { text: "Next Step"; primary: true; width: 100px; height: 35px; clicked => { root.active_step = 4; } }
-                    }
-                }
+if [ "$NON_INTERACTIVE" = "1" ]; then
+    trap - ERR; umount -R "$TARGET" 2>/dev/null || true; exit 0
+fi
 
-                // =========================================================
-                // STEP 4: Account Creation Window ONLY
-                // =========================================================
-                if (root.active_step == 4) : VerticalBox {
-                    alignment: center; spacing: 10px; padding-left: 60px; padding-right: 60px;
-                    Text { text: "User Credentials"; font-size: 22px; font-weight: 700; color: #A5F3FC; horizontal-alignment: center; }
-                    Rectangle { height: 10px; } 
-
-                    VerticalBox { spacing: 4px; Text { text: "System Hostname:"; font-size: 13px; font-weight: 500; color: #D1D5DB; } LineEdit { text: root.in_hostname; edited(val) => { root.in_hostname = val; } height: 38px; } }
-                    VerticalBox { spacing: 4px; Text { text: "Username:"; font-size: 13px; font-weight: 500; color: #D1D5DB; } LineEdit { text: root.in_username; edited(val) => { root.in_username = val; } height: 38px; } }
-                    VerticalBox { spacing: 4px; Text { text: "User Password:"; font-size: 13px; font-weight: 500; color: #D1D5DB; } LineEdit { input-type: password; text: root.in_password; edited(val) => { root.in_password = val; } height: 38px; } }
-                    VerticalBox { spacing: 4px; Text { text: "Root Password (leave blank to match User):"; font-size: 13px; font-weight: 500; color: #D1D5DB; } LineEdit { input-type: password; text: root.in_root_password; edited(val) => { root.in_root_password = val; } height: 38px; } }
-
-                    HorizontalBox {
-                        alignment: center; spacing: 15px; padding-top: 20px;
-                        GlowingButton { 
-                            text: "Back"; primary: false; 
-                            clicked => { 
-                                if (root.selected_part == "1. WIPE (Erase Entire Disk)") { root.active_step = 31; }
-                                else if (root.selected_part == "2. REPLACE (Format Target Partition)") { root.active_step = 32; }
-                                else { root.active_step = 33; }
-                            } 
-                        }
-                        
-                        GlowingButton { 
-                            text: "Next Step"; primary: true; 
-                            clicked => { 
-                                if (root.in_hostname == "" || root.in_username == "" || root.in_password == "") {
-                                    root.error_message = "System Hostname, Username, and Password cannot be left blank.";
-                                    root.show_error_popup = true;
-                                } else { root.active_step = 5; }
-                            } 
-                        }
-                    }
-                }
-
-                // =========================================================
-                // STEP 5: Browser Selection Window (List with Descriptions)
-                // =========================================================
-                if (root.active_step == 5) : VerticalBox {
-                    alignment: center; spacing: 10px; padding-left: 40px; padding-right: 40px;
-                    Text { text: "Web Browser Selection"; font-size: 22px; font-weight: 700; color: #A5F3FC; horizontal-alignment: center; }
-                    Text { text: "Choose your primary browser environment."; color: #9CA3AF; font-size: 12px; horizontal-alignment: center; }
-                    Rectangle { height: 5px; }
-
-                    Rectangle {
-                        height: 250px; width: 100%; border-radius: 8px; border-width: 1px; border-color: #1F2937; background: #020617;
-                        ScrollView {
-                            width: 100%; height: 100%;
-                            VerticalBox {
-                                padding: 8px; spacing: 6px;
-                                RadioOption { title: "1. Falkon Browser (Recommended)"; description: "Lightweight, lightning-fast Qt-based browser integrating seamlessly with KDE."; active: root.selected_browser == "1. Falkon Browser (Recommended)"; clicked => { root.selected_browser = "1. Falkon Browser (Recommended)"; } }
-                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "2. LibreWolf"; description: "Customized version of Firefox prioritizing security and privacy."; active: root.selected_browser == "2. LibreWolf"; clicked => { root.selected_browser = "2. LibreWolf"; } }
-                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "3. Firefox"; description: "The standard open-source web browser engine."; active: root.selected_browser == "3. Firefox"; clicked => { root.selected_browser = "3. Firefox"; } }
-                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "4. Brave"; description: "Chromium-based browser with built-in tracker blocking."; active: root.selected_browser == "4. Brave"; clicked => { root.selected_browser = "4. Brave"; } }
-                            }
-                        }
-                    }
-                    
-                    HorizontalBox {
-                        alignment: center; spacing: 15px; padding-top: 15px;
-                        GlowingButton { text: "Back"; primary: false; clicked => { root.active_step = 4; } }
-                        GlowingButton { text: "Next Step"; primary: true; clicked => { root.active_step = 51; } }
-                    }
-                }
-
-                // =========================================================
-                // STEP 51: Desktop Environment Selection (List with Descriptions)
-                // =========================================================
-                if (root.active_step == 51) : VerticalBox {
-                    alignment: center; spacing: 8px; padding-left: 30px; padding-right: 30px;
-                    Text { text: "Desktop Environment Setup"; font-size: 20px; font-weight: 700; color: #A5F3FC; horizontal-alignment: center; }
-                    Text { text: "Select your window manager or workspace environment."; color: #9CA3AF; font-size: 12px; horizontal-alignment: center; }
-
-                    Rectangle {
-                        height: 270px; width: 100%; border-radius: 8px; border-width: 1px; border-color: #1F2937; background: #020617;
-                        ScrollView {
-                            width: 100%; height: 100%;
-                            VerticalBox {
-                                padding: 8px; spacing: 6px;
-                                RadioOption { title: "1. Hyprland"; description: "Visually pleasing dynamic tiling Wayland compositor."; active: root.selected_de == "1. Hyprland"; clicked => { root.selected_de = "1. Hyprland"; } }
-                                RadioOption { title: "2. KDE Plasma"; description: "Comprehensive, flexible desktop environment offering KWin."; active: root.selected_de == "2. KDE Plasma"; clicked => { root.selected_de = "2. KDE Plasma"; } }
-                                RadioOption { title: "3. XFCE"; description: "Modern, lightweight, stable traditional desktop drop-down layout."; active: root.selected_de == "3. XFCE"; clicked => { root.selected_de = "3. XFCE"; } }
-                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "4. GNOME"; description: "User-friendly environment with a modern layout."; active: root.selected_de == "4. GNOME"; clicked => { root.selected_de = "4. GNOME"; } }
-                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "5. Sway"; description: "Tiling Wayland compositor; dynamic drop-in i3 upgrade."; active: root.selected_de == "5. Sway"; clicked => { root.selected_de = "5. Sway"; } }
-                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "6. i3-wm"; description: "Popular X11 tiling manager leveraging clean text configurations."; active: root.selected_de == "6. i3-wm"; clicked => { root.selected_de = "6. i3-wm"; } }
-                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "7. Cinnamon"; description: "Traditional desktop paradigm balancing internal features."; active: root.selected_de == "7. Cinnamon"; clicked => { root.selected_de = "7. Cinnamon"; } }
-                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "8. Niri"; description: "Scrollable tiling Wayland compositor optimizing fluid layout grid."; active: root.selected_de == "8. Niri"; clicked => { root.selected_de = "8. Niri"; } }
-                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "9. Qtile"; description: "Highly configurable environment scripted entirely in Python."; active: root.selected_de == "9. Qtile"; clicked => { root.selected_de = "9. Qtile"; } }
-                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "10. Wayfire"; description: "Wlroots Wayland engine mixing structural performance aesthetics."; active: root.selected_de == "10. Wayfire"; clicked => { root.selected_de = "10. Wayfire"; } }
-                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "11. bspwm"; description: "Binary space partitioning X11 architecture tracking strict layouts."; active: root.selected_de == "11. bspwm"; clicked => { root.selected_de = "11. bspwm"; } }
-                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "12. Budgie"; description: "Clean and elegant GTK interface prioritizing modern ergonomics."; active: root.selected_de == "12. Budgie"; clicked => { root.selected_de = "12. Budgie"; } }
-                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "13. Cosmic"; description: "Modern performance Rust workspace for absolute responsiveness."; active: root.selected_de == "13. Cosmic"; clicked => { root.selected_de = "13. Cosmic"; } }
-                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "14. LXDE"; description: "Fast, lightweight X11 environment tailored for legacy hardware."; active: root.selected_de == "14. LXDE"; clicked => { root.selected_de = "14. LXDE"; } }
-                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "15. LXQt"; description: "Blazing fast lightweight environment engineered on the Qt stack."; active: root.selected_de == "15. LXQt"; clicked => { root.selected_de = "15. LXQt"; } }
-                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "16. Mate"; description: "Classic GNOME 2 fork tracking legacy desktop layouts natively."; active: root.selected_de == "16. Mate"; clicked => { root.selected_de = "16. Mate"; } }
-                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "17. Openbox"; description: "Highly custom X11 window manager featuring extensive canvas styles."; active: root.selected_de == "17. Openbox"; clicked => { root.selected_de = "17. Openbox"; } }
-                            }
-                        }
-                    }
-
-                    HorizontalBox {
-                        alignment: center; spacing: 15px; padding-top: 10px;
-                        GlowingButton { text: "Back"; primary: false; clicked => { root.active_step = 5; } }
-                        GlowingButton { 
-                            text: "Next Step"; primary: true; 
-                            clicked => { 
-                                if (root.selected_de == "Choose your environment") {
-                                    root.error_message = "Please select a Desktop Environment before proceeding.";
-                                    root.show_error_popup = true;
-                                } else { root.active_step = 52; }
-                            } 
-                        }
-                    }
-                }
-
-                // =========================================================
-                // STEP 52: Boot Manager & Initialization (List with Descriptions)
-                // =========================================================
-                if (root.active_step == 52) : VerticalBox {
-                    alignment: center; spacing: 8px; padding-left: 40px; padding-right: 40px;
-                    Text { text: "Boot Manager Setup"; font-size: 20px; font-weight: 700; color: #A5F3FC; horizontal-alignment: center; }
-                    Text { text: "Select your bootloader and performance matrix configuration."; color: #9CA3AF; font-size: 12px; horizontal-alignment: center; }
-
-                    Rectangle {
-                        height: 180px; width: 100%; border-radius: 8px; border-width: 1px; border-color: #1F2937; background: #020617;
-                        ScrollView {
-                            width: 100%; height: 100%;
-                            VerticalBox {
-                                padding: 8px; spacing: 6px;
-                                RadioOption { title: "1. GRUB"; description: "Flexible multi-boot loader; supports auto BTRFS snapshots."; active: root.selected_boot == "1. GRUB"; clicked => { root.selected_boot = "1. GRUB"; } }
-                                RadioOption { title: "2. systemd-boot"; description: "Light minimalist EFI manager tracking kernel slots."; active: root.selected_boot == "2. systemd-boot"; clicked => { root.selected_boot = "2. systemd-boot"; } }
-                                RadioOption { title: "3. rEFInd"; description: "Rich graphical shell automatically identifying boot options."; active: root.selected_boot == "3. rEFInd"; clicked => { root.selected_boot = "3. rEFInd"; } }
-                                RadioOption { title: "4. Limine"; description: "Modern lightning-fast system deployed cleanly via limine.conf."; active: root.selected_boot == "4. Limine"; clicked => { root.selected_boot = "4. Limine"; } }
-                            }
-                        }
-                    }
-
-                    HorizontalBox {
-                        alignment: start; spacing: 8px;
-                        CheckBox { checked: root.perf_enabled; toggled => { root.perf_enabled = !root.perf_enabled; } }
-                        Text { text: "Apply Hyper-Performance Matrix (ZRAM, Fast I/O, EarlyOOM)"; color: #D1D5DB; font-size: 12px; font-weight: 600; vertical-alignment: center; }
-                    }
-
-                    Text { text: "WARNING: Proceeding will formally execute installation logic."; color: #EF4444; font-size: 11px; font-weight: 700; horizontal-alignment: center; }
-                    
-                    HorizontalBox {
-                        alignment: center; spacing: 15px; padding-top: 10px;
-                        GlowingButton { text: "Back"; primary: false; clicked => { root.active_step = 51; } }
-                        
-                        GlowingButton { 
-                            text: "Initialize Protocol"; primary: true; 
-                            clicked => { 
-                                root.active_step = 6;
-                                InstallerLogic.start_install(
-                                    root.selected_disk, root.selected_mode, root.selected_part,
-                                    root.target_filesystem, root.replace_partition_path,
-                                    root.gui_root_part, root.gui_efi_part,
-                                    root.in_hostname, root.in_username, root.in_password,
-                                    root.in_root_password, root.selected_browser,
-                                    root.perf_enabled ? "Y" : "N", root.selected_de, root.selected_boot
-                                );
-                            } 
-                        }
-                    }
-                }
-
-                // =========================================================
-                // STEP 6: Deployment Execution Screen (Crisp TextEdit Log)
-                // =========================================================
-                if (root.active_step == 6) : VerticalBox {
-                    alignment: center; spacing: 15px; padding-left: 50px; padding-right: 50px;
-                    Text { text: "DEPLOYING INFRASTRUCTURE"; font-size: 20px; font-weight: 800; color: #A5F3FC; horizontal-alignment: center; letter-spacing: 2px; }
-                    ProgressIndicator { progress: InstallerLogic.progress; height: 22px; }
-                    Text { text: InstallerLogic.status_text; color: #9CA3AF; font-size: 14px; horizontal-alignment: center; }
-
-                    TouchArea {
-                        mouse-cursor: pointer; height: 20px; clicked => { root.show_console = !root.show_console; }
-                        Text {
-                            text: root.show_console ? "▼ Hide Deployment Logs" : "▶ View Deployment Logs";
-                            color: root.show_console ? #06B6D4 : #6B7280; font-size: 12px; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; animate color { duration: 100ms; easing: ease-out; }
-                        }
-                    }
-
-                    if (root.show_console) : Rectangle {
-                        background: #000000; border-radius: 8px; border-width: 1px; border-color: #1F2937; height: 220px; width: 100%; clip: true; 
-                        
-                        // Implemented TextEdit to prevent blurriness and strange pixel-rendering 
-                        TextEdit {
-                            width: 100%;
-                            height: 100%;
-                            text: InstallerLogic.console_log;
-                            font-size: 12px;
-                            font-family: "Cascadia Code, Consolas, monospace";
-                            read-only: true;
-                            wrap: word-wrap;
-                        }
-                    }
-                }
-
-                // =========================================================
-                // STEP 99: Success Screen
-                // =========================================================
-                if (root.active_step == 99) : VerticalBox {
-                    alignment: center; spacing: 30px;
-                    VerticalBox {
-                        spacing: 15px;
-                        Text { text: "DEPLOYMENT SUCCESSFUL"; font-size: 28px; font-weight: 800; color: #A5F3FC; horizontal-alignment: center; letter-spacing: 2px; }
-                        Text { text: "Kestrel Arch has been successfully deployed.\nYou may now safely reboot your system."; color: #9CA3AF; font-size: 14px; horizontal-alignment: center; }
-                    }
-                    HorizontalBox {
-                        alignment: center; spacing: 20px;
-                        GlowingButton { text: "Power Off"; primary: false; clicked => { InstallerLogic.poweroff_system(); } }
-                        GlowingButton { text: "Reboot Now"; primary: true; clicked => { InstallerLogic.reboot_system(); } }
-                    }
-                }
-            }
-        }
-    }
-
-    // ==========================================
-    // ERROR MODAL OVERLAY
-    // ==========================================
-    if (root.show_error_popup) : Rectangle {
-        width: 100%; height: 100%; background: #000000D0; TouchArea {}
-        VerticalBox {
-            alignment: center;
-            HorizontalBox {
-                alignment: center;
-                Rectangle {
-                    width: 550px; height: 250px; background: #040D14; border-radius: 12px; border-width: 1px; border-color: #EF4444; drop-shadow-color: #EF444440; drop-shadow-blur: 25px; 
-                    VerticalBox {
-                        padding: 30px; spacing: 20px; alignment: center;
-                        Text { text: "ATTENTION NEEDED"; font-size: 18px; font-weight: 800; color: #EF4444; horizontal-alignment: center; letter-spacing: 1px; }
-                        Text { text: root.error_message; font-size: 14px; color: #F3F4F6; horizontal-alignment: center; wrap: word-wrap; }
-                        HorizontalBox { alignment: center; padding-top: 10px; GlowingButton { text: "Okay, got it!"; primary: false; clicked => { root.show_error_popup = false; } } }
-                    }
-                }
-            }
-        }
-    }
-}
+trap - ERR; umount -R "$TARGET" 2>/dev/null || true; reboot || true
