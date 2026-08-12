@@ -6,16 +6,127 @@ use std::thread;
 use std::rc::Rc;
 use slint::{ModelRc, SharedString, VecModel};
 
+// Helper function to format raw bytes into human-readable strings for the UI table
+fn format_size(bytes: u64) -> String {
+    let kb = 1024.0;
+    let mb = kb * 1024.0;
+    let gb = mb * 1024.0;
+    let b = bytes as f64;
+    
+    if b >= gb { format!("{:.1}G", b / gb) }
+    else if b >= mb { format!("{:.1}M", b / mb) }
+    else if b >= kb { format!("{:.1}K", b / kb) }
+    else { format!("{}B", bytes) }
+}
+
+// Reusable function to scan partitions and calculate UI layout percentages
+fn scan_partitions(disk_path: &str) -> (Vec<PartitionData>, Vec<SharedString>) {
+    let mut partitions = Vec::new();
+    let mut available_dropdown = Vec::new();
+
+    // 1. Get the TOTAL disk size in bytes to calculate the visualizer bar percentages
+    let disk_output = Command::new("lsblk").arg("-b").arg("-n").arg("-d").arg("-o").arg("SIZE").arg(disk_path).output();
+    let total_bytes: f64 = if let Ok(out) = disk_output {
+        String::from_utf8_lossy(&out.stdout).trim().parse().unwrap_or(1.0)
+    } else { 1.0 };
+
+    // 2. Get all partitions with exact byte sizes
+    let output = Command::new("lsblk")
+        .arg("-P").arg("-b").arg("-o").arg("NAME,FSTYPE,LABEL,MOUNTPOINT,SIZE")
+        .arg(disk_path)
+        .output();
+
+    if let Ok(out) = output {
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        
+        let colors = [
+            slint::Color::from_rgb_u8(239, 68, 68),  // Red
+            slint::Color::from_rgb_u8(245, 158, 11), // Orange
+            slint::Color::from_rgb_u8(16, 185, 129), // Green
+            slint::Color::from_rgb_u8(59, 130, 246), // Blue
+            slint::Color::from_rgb_u8(168, 85, 247), // Purple
+        ];
+        let mut color_idx = 0;
+
+        for line in stdout.lines() {
+            let get_val = |key: &str| -> String {
+                if let Some(start) = line.find(&format!("{}=\"", key)) {
+                    let content_start = start + key.len() + 2;
+                    if let Some(end) = line[content_start..].find('"') {
+                        return line[content_start..content_start + end].to_string();
+                    }
+                }
+                String::new()
+            };
+
+            let name = get_val("NAME");
+            let base_disk = disk_path.replace("/dev/", "");
+            
+            // Skip the main drive itself, only capture the sub-partitions
+            if !name.is_empty() && name != base_disk {
+                let fs = get_val("FSTYPE");
+                let raw_size: u64 = get_val("SIZE").parse().unwrap_or(0);
+                
+                // Calculate percentage of the visualizer bar it should take up
+                let stretch_val = (raw_size as f64 / total_bytes) as f32;
+                
+                let part_path = format!("/dev/{}", name);
+
+                let part = PartitionData {
+                    name: part_path.clone().into(),
+                    fstype: if fs.is_empty() { "Unformatted".into() } else { fs.into() },
+                    label: get_val("LABEL").into(),
+                    mountpoint: get_val("MOUNTPOINT").into(),
+                    size: format_size(raw_size).into(),
+                    color_hex: colors[color_idx % colors.len()],
+                    stretch: stretch_val,
+                };
+                
+                partitions.push(part);
+                available_dropdown.push(part_path.into());
+                color_idx += 1;
+            }
+        }
+    }
+    
+    // Safety fallback: if completely empty/unallocated, show one massive gray block
+    if partitions.is_empty() {
+        partitions.push(PartitionData {
+            name: "Unallocated Space".into(),
+            fstype: "None".into(),
+            label: "".into(),
+            mountpoint: "".into(),
+            size: format_size(total_bytes as u64).into(),
+            color_hex: slint::Color::from_rgb_u8(75, 85, 99), // Gray
+            stretch: 1.0,
+        });
+    }
+
+    (partitions, available_dropdown)
+}
+
 fn main() -> Result<(), slint::PlatformError> {
     let ui = InstallerWindow::new()?;
     
     // ==========================================
+    // INITIAL SYSTEM CHECKS (Ethernet & Offline Cache)
+    // ==========================================
+    // Check if the offline installer package cache exists
+    let is_offline = std::path::Path::new("/opt/offline_cache").exists();
+    ui.set_is_offline_cached(is_offline);
+
+    // Initial check for hardwired ethernet (If this succeeds, we skip Wi-Fi setup)
+    if let Ok(status) = Command::new("ping").arg("-c").arg("1").arg("-W").arg("2").arg("archlinux.org").status() {
+        if status.success() {
+            ui.set_has_ethernet(true);
+        }
+    }
+
+    // ==========================================
     // HARDWARE SCANNER: Fetch real disks via lsblk
     // ==========================================
     let output = Command::new("lsblk")
-        .arg("-nd")
-        .arg("-o")
-        .arg("NAME,SIZE")
+        .arg("-nd").arg("-o").arg("NAME,SIZE")
         .output()
         .expect("Failed to execute lsblk");
 
@@ -39,8 +150,30 @@ fn main() -> Result<(), slint::PlatformError> {
         disks.push("No drives found!".into());
     }
 
+    // Load initial partitions for the first disk instantly
+    if let Some(first_disk) = disks.first() {
+        let pure = first_disk.as_str().split_whitespace().next().unwrap_or("");
+        let (parts, avail) = scan_partitions(pure);
+        ui.global::<InstallerLogic>().set_current_partitions(ModelRc::from(Rc::new(VecModel::from(parts))));
+        ui.set_available_partitions(ModelRc::from(Rc::new(VecModel::from(avail))));
+    }
+
     let disks_model = Rc::new(VecModel::from(disks));
     ui.set_available_disks(ModelRc::from(disks_model.clone()));
+
+    // ==========================================
+    // UI CALLBACK: Fetch Partitions Dynamically
+    // ==========================================
+    let ui_handle_fetch = ui.as_weak();
+    ui.global::<InstallerLogic>().on_fetch_partitions(move |disk| {
+        let pure_disk_path = disk.as_str().split_whitespace().next().unwrap_or("").to_string();
+        let (parts, avail) = scan_partitions(&pure_disk_path);
+        
+        if let Some(ui) = ui_handle_fetch.upgrade() {
+            ui.global::<InstallerLogic>().set_current_partitions(ModelRc::from(Rc::new(VecModel::from(parts))));
+            ui.set_available_partitions(ModelRc::from(Rc::new(VecModel::from(avail))));
+        }
+    });
 
     // ==========================================
     // NETWORK LOGIC: Evaluate Online vs Offline
@@ -52,17 +185,10 @@ fn main() -> Result<(), slint::PlatformError> {
 
         thread::spawn(move || {
             let is_online = mode_str.contains("Online");
-            
             let mut needs_wifi = false;
+            
             if is_online {
-                let status = Command::new("ping")
-                    .arg("-c")
-                    .arg("1")
-                    .arg("-W")
-                    .arg("2")
-                    .arg("archlinux.org")
-                    .status();
-                
+                let status = Command::new("ping").arg("-c").arg("1").arg("-W").arg("2").arg("archlinux.org").status();
                 if status.is_err() || !status.unwrap().success() {
                     needs_wifi = true;
                 }
@@ -71,8 +197,10 @@ fn main() -> Result<(), slint::PlatformError> {
             slint::invoke_from_event_loop(move || {
                 if let Some(ui) = ui_handle.upgrade() {
                     if needs_wifi {
+                        ui.set_has_ethernet(false);
                         ui.set_active_step(2);
                     } else {
+                        ui.set_has_ethernet(true);
                         ui.set_active_step(3);
                     }
                 }
@@ -87,22 +215,14 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.global::<InstallerLogic>().on_rescan_wifi(move || {
         let ui_handle = ui_handle_wifi.clone();
         thread::spawn(move || {
-            let iface_output = Command::new("sh")
-                .arg("-c")
-                .arg("iw dev | awk '$1==\"Interface\"{print $2}' | head -n 1")
-                .output();
-            
+            let iface_output = Command::new("sh").arg("-c").arg("iw dev | awk '$1==\"Interface\"{print $2}' | head -n 1").output();
             if let Ok(out) = iface_output {
                 let iface = String::from_utf8_lossy(&out.stdout).trim().to_string();
                 if !iface.is_empty() {
                     let _ = Command::new("iwctl").arg("station").arg(&iface).arg("scan").status();
                     thread::sleep(std::time::Duration::from_secs(2));
                     
-                    let nets_output = Command::new("sh")
-                        .arg("-c")
-                        .arg(format!("iwctl station {} get-networks | awk 'NR>4 {{print $2}}'", iface))
-                        .output();
-                    
+                    let nets_output = Command::new("sh").arg("-c").arg(format!("iwctl station {} get-networks | awk 'NR>4 {{print $2}}'", iface)).output();
                     if let Ok(net_out) = nets_output {
                         let stdout = String::from_utf8_lossy(&net_out.stdout);
                         let mut net_list: Vec<SharedString> = Vec::new();
@@ -112,7 +232,7 @@ fn main() -> Result<(), slint::PlatformError> {
                                 net_list.push(clean_net.into());
                             }
                         }
-                     if !net_list.is_empty() {
+                        if !net_list.is_empty() {
                             slint::invoke_from_event_loop(move || {
                                 if let Some(ui) = ui_handle.upgrade() {
                                     let net_model = Rc::new(VecModel::from(net_list));
@@ -133,25 +253,14 @@ fn main() -> Result<(), slint::PlatformError> {
         let pass_str = password.to_string();
 
         thread::spawn(move || {
-            let iface_output = Command::new("sh")
-                .arg("-c")
-                .arg("iw dev | awk '$1==\"Interface\"{print $2}' | head -n 1")
-                .output();
-            
+            let iface_output = Command::new("sh").arg("-c").arg("iw dev | awk '$1==\"Interface\"{print $2}' | head -n 1").output();
             if let Ok(out) = iface_output {
                 let iface = String::from_utf8_lossy(&out.stdout).trim().to_string();
                 if !iface.is_empty() {
                     if pass_str.is_empty() {
                         let _ = Command::new("iwctl").arg("station").arg(&iface).arg("connect").arg(&ssid_str).status();
                     } else {
-                        let _ = Command::new("iwctl")
-                            .arg("station")
-                            .arg(&iface)
-                            .arg("connect")
-                            .arg(&ssid_str)
-                            .arg("--passphrase")
-                            .arg(&pass_str)
-                            .status();
+                        let _ = Command::new("iwctl").arg("station").arg(&iface).arg("connect").arg(&ssid_str).arg("--passphrase").arg(&pass_str).status();
                     }
                     thread::sleep(std::time::Duration::from_secs(4));
                 }
@@ -169,98 +278,41 @@ fn main() -> Result<(), slint::PlatformError> {
     // SYSTEM LOGIC: Power Management
     // ==========================================
     ui.global::<InstallerLogic>().on_reboot_system(move || {
-        Command::new("systemctl")
-            .arg("reboot")
-            .spawn()
-            .expect("Failed to execute reboot command");
+        let _ = Command::new("systemctl").arg("reboot").spawn();
     });
 
     ui.global::<InstallerLogic>().on_poweroff_system(move || {
-        Command::new("systemctl")
-            .arg("poweroff")
-            .spawn()
-            .expect("Failed to execute poweroff command");
+        let _ = Command::new("systemctl").arg("poweroff").spawn();
     });
 
     // ==========================================
-    // PARTITION MANAGER (GParted & lsblk logic)
+    // PARTITION MANAGER (Non-Blocking GParted)
     // ==========================================
     let ui_handle_gparted = ui.as_weak();
     ui.global::<InstallerLogic>().on_launch_gparted(move |disk| {
         let ui_handle = ui_handle_gparted.clone();
-        
-        // Clean out the display formatting (e.g. "/dev/sda - 16G" -> "/dev/sda")
         let pure_disk_path = disk.as_str().split_whitespace().next().unwrap_or("").to_string();
         
-        // 1. Launch GParted GUI (Will take over the screen natively until the user closes it)
-        let _ = Command::new("gparted")
-            .arg(&pure_disk_path)
-            .status(); // .status() safely blocks the Rust installer until GParted is closed!
+        // Spawn in a separate thread so it DOES NOT freeze the GUI!
+        thread::spawn(move || {
+            // 1. Launch GParted GUI and wait for it to close
+            let _ = Command::new("gparted").arg(&pure_disk_path).status();
 
-        // 2. Once GParted closes, run lsblk -P to read the new partitions mapped by the user
-        let output = Command::new("lsblk")
-            .arg("-P")
-            .arg("-o").arg("NAME,FSTYPE,LABEL,MOUNTPOINT,SIZE")
-            .arg(&pure_disk_path)
-            .output();
+            // 2. Rescan the new layout mapped by the user
+            let (parts, avail) = scan_partitions(&pure_disk_path);
 
-        if let Ok(out) = output {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            let mut partitions: Vec<PartitionData> = Vec::new();
-            
-            // Loop array for clean UI rendering colors
-            let colors = [
-                slint::Color::from_rgb_u8(239, 68, 68),  // Red
-                slint::Color::from_rgb_u8(245, 158, 11), // Orange
-                slint::Color::from_rgb_u8(16, 185, 129), // Green
-                slint::Color::from_rgb_u8(59, 130, 246), // Blue
-                slint::Color::from_rgb_u8(168, 85, 247), // Purple
-            ];
-            let mut color_idx = 0;
-
-            for line in stdout.lines() {
-                // Inline closure to extract keys from standard `lsblk -P` pairs (e.g., NAME="sda1")
-                let get_val = |key: &str| -> String {
-                    if let Some(start) = line.find(&format!("{}=\"", key)) {
-                        let content_start = start + key.len() + 2;
-                        if let Some(end) = line[content_start..].find('"') {
-                            return line[content_start..content_start + end].to_string();
-                        }
-                    }
-                    String::new()
-                };
-
-                let name = get_val("NAME");
-                let base_disk = pure_disk_path.replace("/dev/", "");
-                
-                // Skip the main drive itself, only capture the generated partitions
-                if !name.is_empty() && name != base_disk {
-                    let fs = get_val("FSTYPE");
-                    let part = PartitionData {
-                        name: format!("/dev/{}", name).into(),
-                        fstype: if fs.is_empty() { "Unformatted".into() } else { fs.into() },
-                        label: get_val("LABEL").into(),
-                        mountpoint: get_val("MOUNTPOINT").into(),
-                        size: get_val("SIZE").into(),
-                        color_hex: colors[color_idx % colors.len()],
-                    };
-                    partitions.push(part);
-                    color_idx += 1;
-                }
-            }
-
-            // 3. Send the parsed partitions back to the Slint GUI thread!
+            // 3. Update the GUI dynamically
             slint::invoke_from_event_loop(move || {
                 if let Some(ui) = ui_handle.upgrade() {
-                    let part_model = Rc::new(VecModel::from(partitions));
-                    ui.global::<InstallerLogic>().set_current_partitions(ModelRc::from(part_model));
+                    ui.global::<InstallerLogic>().set_current_partitions(ModelRc::from(Rc::new(VecModel::from(parts))));
+                    ui.set_available_partitions(ModelRc::from(Rc::new(VecModel::from(avail))));
                 }
             }).unwrap();
-        }
+        });
     });
 
     // ==========================================
-    // INSTALLER LOGIC: Execute Bash Backend
+    // INSTALLER LOGIC: Execute Bash Backend (Crash Capture)
     // ==========================================
     let ui_handle = ui.as_weak();
     
@@ -274,8 +326,6 @@ fn main() -> Result<(), slint::PlatformError> {
         let ui_handle = ui_handle.clone();
         
         let pure_disk_path = target_disk.as_str().split_whitespace().next().unwrap_or("").to_string();
-        
-        // Dynamically parse user selections from the UI strings (e.g., "1. Falkon" -> "1")
         let mode_num = install_mode.as_str().split('.').next().unwrap_or("2").to_string();
         let part_num = part_strategy.as_str().split('.').next().unwrap_or("1").to_string();
         
@@ -295,8 +345,11 @@ fn main() -> Result<(), slint::PlatformError> {
         let boot_num = selected_boot.as_str().split('.').next().unwrap_or("1").to_string();
         
         thread::spawn(move || {
+            // FIX: Using bash -c with 2>&1 pipes STDERR directly into STDOUT.
+            // This guarantees that if the script crashes, the fatal error is printed directly to the GUI window.
             let mut child = Command::new("bash")
-                .arg("/usr/local/bin/install.sh") 
+                .arg("-c")
+                .arg("/usr/local/bin/install.sh 2>&1")
                 .env("TARGET_DISK", &pure_disk_path)
                 .env("INSTALL_MODE", &mode_num)
                 .env("PARTITION_STRATEGY", &part_num)
@@ -314,7 +367,6 @@ fn main() -> Result<(), slint::PlatformError> {
                 .env("BOOT_CHOICE", &boot_num)
                 .env("NON_INTERACTIVE", "1") 
                 .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
                 .spawn()
                 .expect("Failed to execute Kestrel bash script");
 
@@ -357,7 +409,7 @@ fn main() -> Result<(), slint::PlatformError> {
             let status = child.wait().expect("Failed to wait on backend process");
 
             if !status.success() {
-                full_log.push_str("\n[!] CRITICAL FAULT: Deployment process exited with a non-zero status code.");
+                full_log.push_str("\n[!] CRITICAL FAULT: Deployment process exited with a non-zero status code. Read logs above for details.");
             }
             let final_log = full_log.clone();
 
