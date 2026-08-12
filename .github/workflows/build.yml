@@ -11,6 +11,7 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '30 3 * * *'
+
 jobs:
   build-archiso:
     runs-on: ubuntu-latest
@@ -53,15 +54,17 @@ jobs:
           pacman -U 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst' 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst' --noconfirm
           echo -e "\n[chaotic-aur]\nInclude = /etc/pacman.d/chaotic-mirrorlist" >> /etc/pacman.conf
 
+          # SCOPED OFFLINE CACHE: Contains core packages, drivers, bootloaders, Falkon, and ONLY the 3 offline DEs (Hyprland, Plasma 6, XFCE)
           pacman -Syw --cachedir airootfs/opt/offline_cache --dbpath /tmp/empty_db --noconfirm \
             base linux-cachyos linux linux-firmware scx-scheds switcheroo-control efibootmgr os-prober ntfs-3g networkmanager iwd bluez bluez-utils blueman \
             pipewire pipewire-pulse wireplumber brightnessctl xorg-server sddm sudo zram-generator earlyoom \
             reflector ttf-dejavu ttf-liberation noto-fonts noto-fonts-emoji curl chaotic-keyring chaotic-mirrorlist parted btrfs-progs dosfstools e2fsprogs xfsprogs gparted \
             amd-ucode intel-ucode nvidia nvidia-utils nvidia-prime xf86-video-amdgpu intel-media-driver \
             grub refind limine \
+            falkon \
             hyprland waybar kitty rofi-wayland xdg-desktop-portal-hyprland polkit-kde-agent thunar gvfs \
             plasma-desktop plasma-workspace plasma-nm power-profiles-daemon kscreen konsole dolphin sddm-kcm \
-            xfce4 xfce4-terminal xfce4-goodies falkon \
+            xfce4 xfce4-terminal xfce4-goodies \
             qt5-wayland qt6-wayland git stow cage mesa polkit
 
       - name: Index Offline Database
@@ -142,30 +145,21 @@ jobs:
           
           echo "=> Fast-cloning repo WITHOUT downloading old massive ISOs..."
           git lfs install
-          # The SKIP_SMUDGE flag prevents Git from downloading the actual heavy files during clone
           GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 https://user:$HF_TOKEN@huggingface.co/datasets/$HF_REPO hf_dataset
           cd hf_dataset
           
           git config user.name "Kestrel Bot"
           git config user.email "actions@users.noreply.github.com"
           
-          # FIX: Quotes added to prevent bash syntax errors with parentheses
           rm -f "Kestrel-Arch(offline)"*.iso
-          
-          # Copy the fresh ISO into the dataset folder
           cp ../$ISO_FILE ./
           
-          # Ensure Git LFS tracks ISO files
           git lfs track "*.iso"
-          
-          # Create an orphan branch to completely squash prior history and purge old LFS bloat
           git checkout --orphan fresh_branch
           
-          # Add everything (The new offline ISO + the untouched online ISO pointer + README)
           git add .
           git commit -m "Automated Offline ISO deployment: $ISO_NAME [skip ci]"
           
-          # Force push the single clean commit to wipe out the old storage bloat
           git branch -D main 2>/dev/null || true
           git branch -m main
           git push origin main --force
