@@ -14,6 +14,7 @@ export struct PartitionData {
     mountpoint: string,
     size: string,
     color_hex: color,
+    stretch: float, // FIX: Determines the width percentage in the visualizer bar
 }
 
 export global InstallerLogic {
@@ -28,6 +29,8 @@ export global InstallerLogic {
     
     // GParted Callback & Data binding
     callback launch_gparted(string);
+    callback fetch_partitions(string); // FIX: Manually trigger a fresh lsblk scan when selecting a disk
+    
     in-out property <[PartitionData]> current_partitions;
     
     in property <float> progress: 0.0;
@@ -137,22 +140,33 @@ component RadioOption inherits Rectangle {
 // ==========================================
 component PartitionVisualizer inherits VerticalBox {
     in property <string> disk_name;
+    // FIX: Fully dynamic visualization pulling from real Rust data
+    in property <[PartitionData]> partitions;
     spacing: 6px;
 
     Text { text: "Partition layout context for " + root.disk_name; color: #D1D5DB; font-size: 11px; font-weight: 600; }
 
     Rectangle {
         width: 100%; height: 22px; border-radius: 4px; clip: true; background: #1F2937;
-        HorizontalLayout {
-            Rectangle { width: 25%; background: #EF4444; }
-            Rectangle { width: 75%; background: #06B6D4; }
+        HorizontalBox {
+            padding: 0px; spacing: 0px;
+            for part in root.partitions : Rectangle {
+                background: part.color_hex;
+                horizontal-stretch: part.stretch;
+            }
         }
     }
     
-    HorizontalBox {
-        spacing: 15px;
-        HorizontalBox { spacing: 4px; Rectangle { width: 8px; height: 8px; background: #EF4444; border-radius: 2px; } Text { text: "/dev/sda1 (EFI - 512M)"; color: #9CA3AF; font-size: 10px; } }
-        HorizontalBox { spacing: 4px; Rectangle { width: 8px; height: 8px; background: #06B6D4; border-radius: 2px; } Text { text: "/dev/sda2 (Root - Target)"; color: #9CA3AF; font-size: 10px; } }
+    ScrollView {
+        height: 35px;
+        HorizontalBox {
+            spacing: 15px; padding: 0px; alignment: start;
+            for part in root.partitions : HorizontalBox {
+                spacing: 4px; 
+                Rectangle { width: 8px; height: 8px; background: part.color_hex; border-radius: 2px; y: (parent.height - self.height)/2; } 
+                Text { text: part.name + " (" + part.size + ")"; color: #9CA3AF; font-size: 10px; vertical-alignment: center; } 
+            }
+        }
     }
 }
 
@@ -170,23 +184,28 @@ export component InstallerWindow inherits Window {
     in-out property <string> error_message: "";
     in-out property <bool> show_error_popup: false;
     
+    // FIX: Context-aware properties updated by Rust on launch
+    in property <bool> is_offline_cached: false; 
+    in property <bool> has_ethernet: false;
+    
     property <string> selected_mode: "Choose mode of installation";
     
-    // List-based Network selection properties
-    in property <[string]> available_networks: ["Home-WiFi-5G", "Office-Guest", "Kestrel-Secure"];
+    in property <[string]> available_networks: ["Scanning networks..."];
     property <string> selected_network: "";
     property <string> wifi_password: "";
     
     in property <[string]> available_disks: ["Scanning hardware..."];
+    in property <[string]> available_partitions: []; // FIX: Populated dynamically for Replace/Manual modes
+    
     property <string> selected_disk: root.available_disks[0];
     property <string> selected_part: "1. WIPE (Erase Entire Disk)";
     
     property <string> target_filesystem: "ext4";
-    property <string> replace_partition_path: "";
+    property <string> replace_partition_path: "Choose target partition";
     
-    // Specific GUI Mount Point variables
-    property <string> gui_root_part: "/dev/sda2"; // Bound to whatever the user selects in the table
-    property <string> gui_efi_part: "/dev/sda1";  // Bound to whatever the user selects in the table
+    // FIX: GUI Mount Point variables for Manual mode
+    property <string> gui_root_part: "Select Root (/)"; 
+    property <string> gui_efi_part: "Select EFI (/boot)"; 
     
     property <string> in_hostname: "";
     property <string> in_username: "";
@@ -256,7 +275,8 @@ export component InstallerWindow inherits Window {
                         spacing: 6px;
                         Text { text: "Select Installation Mode:"; font-size: 13px; font-weight: 600; color: #D1D5DB; }
                         ComboBox { 
-                            model: ["Choose mode of installation", "1. Online (Download Latest)", "2. Offline (Fast, Local Cache)"]; 
+                            // FIX: Conditionally hides the Offline option if the cache isn't present
+                            model: root.is_offline_cached ? ["Choose mode of installation", "1. Online (Download Latest)", "2. Offline (Fast, Local Cache)"] : ["Choose mode of installation", "1. Online (Download Latest)"]; 
                             current-value: root.selected_mode; 
                             selected(val) => { root.selected_mode = val; } 
                             height: 38px; 
@@ -352,14 +372,26 @@ export component InstallerWindow inherits Window {
                     VerticalBox {
                         spacing: 6px;
                         Text { text: "Available Storage Drives:"; font-size: 12px; font-weight: 600; color: #D1D5DB; }
-                        ComboBox { model: root.available_disks; current-value: root.selected_disk; selected(val) => { root.selected_disk = val; } height: 35px; }
+                        ComboBox { 
+                            model: root.available_disks; 
+                            current-value: root.selected_disk; 
+                            selected(val) => { 
+                                root.selected_disk = val; 
+                                InstallerLogic.fetch_partitions(val); // FIX: Instantly refreshes visualizer when swapping disks
+                            } 
+                            height: 35px; 
+                        }
                     }
 
-                    PartitionVisualizer { disk_name: root.selected_disk; }
+                    PartitionVisualizer { 
+                        disk_name: root.selected_disk; 
+                        partitions: InstallerLogic.current_partitions; 
+                    }
                     
                     HorizontalBox {
                         alignment: center; spacing: 15px; padding-top: 15px;
-                        GlowingButton { text: "Back"; primary: false; clicked => { root.active_step = root.selected_mode == "1. Online (Download Latest)" ? 2 : 1; } }
+                        // FIX: Safely jumps over the Wi-Fi screen if the user is on a wired connection
+                        GlowingButton { text: "Back"; primary: false; clicked => { root.active_step = (root.selected_mode == "1. Online (Download Latest)" && !root.has_ethernet) ? 2 : 1; } }
                         GlowingButton { text: "Next Step"; primary: true; clicked => { root.active_step = 30; } }
                     }
                 }
@@ -407,7 +439,10 @@ export component InstallerWindow inherits Window {
                             clicked => { 
                                 if (root.selected_part == "1. WIPE (Erase Entire Disk)") { root.active_step = 31; } 
                                 else if (root.selected_part == "2. REPLACE (Format Target Partition)") { root.active_step = 32; } 
-                                else { root.active_step = 33; }
+                                else { 
+                                    root.active_step = 33; 
+                                    InstallerLogic.fetch_partitions(root.selected_disk); // Ensure data is ready for the table
+                                }
                             } 
                         }
                     }
@@ -446,12 +481,21 @@ export component InstallerWindow inherits Window {
                     alignment: center; spacing: 10px; padding-left: 60px; padding-right: 60px;
                     Text { text: "Replace Partition"; font-size: 20px; font-weight: 700; color: #A5F3FC; horizontal-alignment: center; }
 
-                    PartitionVisualizer { disk_name: root.selected_disk; }
+                    PartitionVisualizer { 
+                        disk_name: root.selected_disk; 
+                        partitions: InstallerLogic.current_partitions; 
+                    }
 
                     VerticalBox {
                         spacing: 4px;
-                        Text { text: "Enter target partition path (e.g., /dev/sda2):"; font-size: 12px; font-weight: 600; color: #D1D5DB; }
-                        LineEdit { text: root.replace_partition_path; edited(val) => { root.replace_partition_path = val; } height: 35px; }
+                        Text { text: "Select target partition to format & replace:"; font-size: 12px; font-weight: 600; color: #D1D5DB; }
+                        // FIX: Safely binds to actual available partitions string list provided by Rust
+                        ComboBox { 
+                            model: root.available_partitions; 
+                            current-value: root.replace_partition_path; 
+                            selected(val) => { root.replace_partition_path = val; } 
+                            height: 35px; 
+                        }
                     }
 
                     VerticalBox {
@@ -467,8 +511,8 @@ export component InstallerWindow inherits Window {
                             text: "Confirm & Continue"; 
                             primary: true; 
                             clicked => { 
-                                if (root.replace_partition_path == "") {
-                                    root.error_message = "Please provide the target partition path (e.g., /dev/sda2).";
+                                if (root.replace_partition_path == "Choose target partition" || root.replace_partition_path == "") {
+                                    root.error_message = "Please select a valid target partition to replace.";
                                     root.show_error_popup = true;
                                 } else {
                                     root.active_step = 4; 
@@ -489,12 +533,20 @@ export component InstallerWindow inherits Window {
                         HorizontalBox {
                             spacing: 10px;
                             Text { text: "Storage device:"; color: #D1D5DB; font-size: 13px; font-weight: 600; vertical-alignment: center; }
-                            ComboBox { model: root.available_disks; current-value: root.selected_disk; selected(val) => { root.selected_disk = val; } width: 280px; height: 32px; }
+                            ComboBox { 
+                                model: root.available_disks; 
+                                current-value: root.selected_disk; 
+                                selected(val) => { 
+                                    root.selected_disk = val; 
+                                    InstallerLogic.fetch_partitions(val);
+                                } 
+                                width: 280px; height: 32px; 
+                            }
                         }
                     }
 
                     Rectangle {
-                        border-width: 1px; border-color: #06B6D4; border-radius: 6px; background: #020617; height: 260px;
+                        border-width: 1px; border-color: #06B6D4; border-radius: 6px; background: #020617; height: 210px;
                         VerticalBox {
                             Rectangle {
                                 background: #0F172A; height: 30px;
@@ -514,7 +566,7 @@ export component InstallerWindow inherits Window {
                                         height: 28px; background: #1F293750; border-radius: 3px;
                                         HorizontalBox {
                                             padding-left: 8px; padding-right: 8px; spacing: 10px;
-                                            HorizontalBox { spacing: 6px; width: 140px; alignment: start; Rectangle { width: 10px; height: 10px; background: part.color_hex; border-radius: 2px; } Text { text: part.name; color: #D1D5DB; font-size: 12px; vertical-alignment: center; } }
+                                            HorizontalBox { spacing: 6px; width: 140px; alignment: start; Rectangle { width: 10px; height: 10px; background: part.color_hex; border-radius: 2px; y: (parent.height - self.height)/2; } Text { text: part.name; color: #D1D5DB; font-size: 12px; vertical-alignment: center; } }
                                             Text { text: part.fstype; width: 80px; color: #D1D5DB; font-size: 12px; vertical-alignment: center; }
                                             Text { text: part.label; width: 110px; color: #D1D5DB; font-size: 12px; vertical-alignment: center; }
                                             Text { text: part.mountpoint; width: 90px; color: #D1D5DB; font-size: 12px; vertical-alignment: center; }
@@ -526,8 +578,25 @@ export component InstallerWindow inherits Window {
                         }
                     }
 
+                    // FIX: Dropdowns appended explicitly for locking in Mount Point assignment
                     HorizontalBox {
                         alignment: space-between;
+                        padding-top: 5px;
+                        HorizontalBox {
+                            spacing: 10px;
+                            Text { text: "Root (/) Partition:"; color: #D1D5DB; font-size: 12px; vertical-alignment: center; }
+                            ComboBox { model: root.available_partitions; current-value: root.gui_root_part; selected(val) => { root.gui_root_part = val; } width: 140px; height: 32px; }
+                        }
+                        HorizontalBox {
+                            spacing: 10px;
+                            Text { text: "EFI (/boot) Partition:"; color: #D1D5DB; font-size: 12px; vertical-alignment: center; }
+                            ComboBox { model: root.available_partitions; current-value: root.gui_efi_part; selected(val) => { root.gui_efi_part = val; } width: 140px; height: 32px; }
+                        }
+                    }
+
+                    HorizontalBox {
+                        alignment: space-between;
+                        padding-top: 10px;
                         Text { text: "Use GParted to visually format your layout, then close it to refresh."; color: #F59E0B; font-size: 11px; vertical-alignment: center; }
                         GlowingButton { 
                             text: "Launch GParted"; primary: false; width: 140px; height: 32px; 
@@ -538,7 +607,17 @@ export component InstallerWindow inherits Window {
                     HorizontalBox {
                         alignment: end; spacing: 12px; padding-top: 5px;
                         GlowingButton { text: "Back"; primary: false; width: 100px; height: 35px; clicked => { root.active_step = 30; } }
-                        GlowingButton { text: "Next Step"; primary: true; width: 100px; height: 35px; clicked => { root.active_step = 4; } }
+                        GlowingButton { 
+                            text: "Next Step"; primary: true; width: 100px; height: 35px; 
+                            clicked => { 
+                                if (root.gui_root_part == "Select Root (/)" || root.gui_efi_part == "Select EFI (/boot)") {
+                                    root.error_message = "Please assign both a Root (/) and EFI (/boot) partition before continuing.";
+                                    root.show_error_popup = true;
+                                } else {
+                                    root.active_step = 4;
+                                }
+                            } 
+                        }
                     }
                 }
 
@@ -597,6 +676,8 @@ export component InstallerWindow inherits Window {
                                 if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "2. LibreWolf"; description: "Customized version of Firefox prioritizing security and privacy."; active: root.selected_browser == "2. LibreWolf"; clicked => { root.selected_browser = "2. LibreWolf"; } }
                                 if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "3. Firefox"; description: "The standard open-source web browser engine."; active: root.selected_browser == "3. Firefox"; clicked => { root.selected_browser = "3. Firefox"; } }
                                 if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "4. Brave"; description: "Chromium-based browser with built-in tracker blocking."; active: root.selected_browser == "4. Brave"; clicked => { root.selected_browser = "4. Brave"; } }
+                                // FIX: Added Falkon natively to the UI selection
+                                RadioOption { title: "5. Falkon"; description: "Lightweight Qt web browser with native KDE/Arch integration."; active: root.selected_browser == "5. Falkon"; clicked => { root.selected_browser = "5. Falkon"; } }
                             }
                         }
                     }
@@ -729,7 +810,6 @@ export component InstallerWindow inherits Window {
                     if (root.show_console) : Rectangle {
                         background: #000000; border-radius: 8px; border-width: 1px; border-color: #1F2937; height: 220px; width: 100%; clip: true; 
                         
-                        // Implemented TextEdit to prevent blurriness and strange pixel-rendering 
                         TextEdit {
                             width: 100%;
                             height: 100%;
