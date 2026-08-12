@@ -346,7 +346,6 @@ fn main() -> Result<(), slint::PlatformError> {
         
         thread::spawn(move || {
             // FIX: Using bash -c with 2>&1 pipes STDERR directly into STDOUT.
-            // This guarantees that if the script crashes, the fatal error is printed directly to the GUI window.
             let mut child = Command::new("bash")
                 .arg("-c")
                 .arg("/usr/local/bin/install.sh 2>&1")
