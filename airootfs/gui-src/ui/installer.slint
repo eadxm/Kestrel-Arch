@@ -6,7 +6,6 @@ import { ComboBox, ProgressIndicator, VerticalBox, HorizontalBox, LineEdit, Chec
 import "./fonts/Geomini.ttf";
 import "./fonts/CascadiaCode.ttf";
 
-// Struct to hold partition data sent from Rust
 export struct PartitionData {
     name: string,
     fstype: string,
@@ -14,11 +13,10 @@ export struct PartitionData {
     mountpoint: string,
     size: string,
     color_hex: color,
-    stretch: float, // FIX: Determines the width percentage in the visualizer bar
+    stretch: float, 
 }
 
 export global InstallerLogic {
-    // 15 parameters to match main.rs explicitly
     callback start_install(string, string, string, string, string, string, string, string, string, string, string, string, string, string, string);
     callback poweroff_system();
     callback reboot_system();
@@ -27,9 +25,8 @@ export global InstallerLogic {
     callback rescan_wifi();
     callback connect_wifi(string, string); 
     
-    // GParted Callback & Data binding
     callback launch_gparted(string);
-    callback fetch_partitions(string); // FIX: Manually trigger a fresh lsblk scan when selecting a disk
+    callback fetch_partitions(string); 
     
     in-out property <[PartitionData]> current_partitions;
     
@@ -38,9 +35,6 @@ export global InstallerLogic {
     in property <string> console_log: "> System pre-flight checks passed.\n> Standing by for deployment protocol...\n";
 }
 
-// ==========================================
-// FLUID BUTTON COMPONENT
-// ==========================================
 component GlowingButton inherits Rectangle {
     in property <string> text;
     in property <bool> primary: false;
@@ -80,9 +74,6 @@ component GlowingButton inherits Rectangle {
     }
 }
 
-// ==========================================
-// CUSTOM RADIO OPTION COMPONENT
-// ==========================================
 component RadioOption inherits Rectangle {
     in property <string> title;
     in property <string> description;
@@ -135,12 +126,8 @@ component RadioOption inherits Rectangle {
     }
 }
 
-// ==========================================
-// PARTITION VISUALIZER COMPONENT
-// ==========================================
 component PartitionVisualizer inherits VerticalBox {
     in property <string> disk_name;
-    // FIX: Fully dynamic visualization pulling from real Rust data
     in property <[PartitionData]> partitions;
     spacing: 6px;
 
@@ -184,7 +171,6 @@ export component InstallerWindow inherits Window {
     in-out property <string> error_message: "";
     in-out property <bool> show_error_popup: false;
     
-    // FIX: Context-aware properties updated by Rust on launch
     in property <bool> is_offline_cached: false; 
     in property <bool> has_ethernet: false;
     
@@ -195,7 +181,7 @@ export component InstallerWindow inherits Window {
     property <string> wifi_password: "";
     
     in property <[string]> available_disks: ["Scanning hardware..."];
-    in property <[string]> available_partitions: []; // FIX: Populated dynamically for Replace/Manual modes
+    in property <[string]> available_partitions: []; 
     
     property <string> selected_disk: root.available_disks[0];
     property <string> selected_part: "1. WIPE (Erase Entire Disk)";
@@ -203,7 +189,6 @@ export component InstallerWindow inherits Window {
     property <string> target_filesystem: "ext4";
     property <string> replace_partition_path: "Choose target partition";
     
-    // FIX: GUI Mount Point variables for Manual mode
     property <string> gui_root_part: "Select Root (/)"; 
     property <string> gui_efi_part: "Select EFI (/boot)"; 
     
@@ -212,10 +197,10 @@ export component InstallerWindow inherits Window {
     property <string> in_password: "";
     property <string> in_root_password: "";
     
-    property <string> selected_browser: "1. Zen Browser (Recommended)";
+    property <string> selected_browser: "1. Zen Browser";
     property <bool> perf_enabled: true;
     property <string> selected_de: "Choose your environment";
-    property <string> selected_boot: "1. GRUB";
+    property <string> selected_boot: "1. GRUB (BIOS & UEFI)";
 
     property <bool> show_console: false;
 
@@ -275,10 +260,15 @@ export component InstallerWindow inherits Window {
                         spacing: 6px;
                         Text { text: "Select Installation Mode:"; font-size: 13px; font-weight: 600; color: #D1D5DB; }
                         ComboBox { 
-                            // FIX: Conditionally hides the Offline option if the cache isn't present
                             model: root.is_offline_cached ? ["Choose mode of installation", "1. Online (Download Latest)", "2. Offline (Fast, Local Cache)"] : ["Choose mode of installation", "1. Online (Download Latest)"]; 
                             current-value: root.selected_mode; 
-                            selected(val) => { root.selected_mode = val; } 
+                            selected(val) => { 
+                                root.selected_mode = val; 
+                                // FIX: Dynamically wire the UI to force Falkon when Offline is clicked
+                                if (val == "2. Offline (Fast, Local Cache)") {
+                                    root.selected_browser = "5. Falkon (Recommended)";
+                                }
+                            } 
                             height: 38px; 
                         }
                         Text { text: "Online mode requires an active internet connection. Offline is air-gapped."; color: #6B7280; font-size: 12px; }
@@ -303,7 +293,7 @@ export component InstallerWindow inherits Window {
                 }
 
                 // =========================================================
-                // STEP 2: Dedicated Network Window (List Selection Layout)
+                // STEP 2: Dedicated Network Window 
                 // =========================================================
                 if (root.active_step == 2) : VerticalBox {
                     alignment: center; spacing: 12px; padding-left: 40px; padding-right: 40px;
@@ -362,7 +352,7 @@ export component InstallerWindow inherits Window {
                 }
 
                 // =========================================================
-                // STEP 3: Target Drive Selection Window (With Partition Bar)
+                // STEP 3: Target Drive Selection Window
                 // =========================================================
                 if (root.active_step == 3) : VerticalBox {
                     alignment: center; spacing: 12px; padding-left: 60px; padding-right: 60px;
@@ -377,7 +367,7 @@ export component InstallerWindow inherits Window {
                             current-value: root.selected_disk; 
                             selected(val) => { 
                                 root.selected_disk = val; 
-                                InstallerLogic.fetch_partitions(val); // FIX: Instantly refreshes visualizer when swapping disks
+                                InstallerLogic.fetch_partitions(val);
                             } 
                             height: 35px; 
                         }
@@ -390,7 +380,6 @@ export component InstallerWindow inherits Window {
                     
                     HorizontalBox {
                         alignment: center; spacing: 15px; padding-top: 15px;
-                        // FIX: Safely jumps over the Wi-Fi screen if the user is on a wired connection
                         GlowingButton { text: "Back"; primary: false; clicked => { root.active_step = (root.selected_mode == "1. Online (Download Latest)" && !root.has_ethernet) ? 2 : 1; } }
                         GlowingButton { text: "Next Step"; primary: true; clicked => { root.active_step = 30; } }
                     }
@@ -441,7 +430,7 @@ export component InstallerWindow inherits Window {
                                 else if (root.selected_part == "2. REPLACE (Format Target Partition)") { root.active_step = 32; } 
                                 else { 
                                     root.active_step = 33; 
-                                    InstallerLogic.fetch_partitions(root.selected_disk); // Ensure data is ready for the table
+                                    InstallerLogic.fetch_partitions(root.selected_disk); 
                                 }
                             } 
                         }
@@ -475,7 +464,7 @@ export component InstallerWindow inherits Window {
                 }
 
                 // =========================================================
-                // STEP 32: Replace Partition (With Partition Bar)
+                // STEP 32: Replace Partition 
                 // =========================================================
                 if (root.active_step == 32) : VerticalBox {
                     alignment: center; spacing: 10px; padding-left: 60px; padding-right: 60px;
@@ -489,7 +478,6 @@ export component InstallerWindow inherits Window {
                     VerticalBox {
                         spacing: 4px;
                         Text { text: "Select target partition to format & replace:"; font-size: 12px; font-weight: 600; color: #D1D5DB; }
-                        // FIX: Safely binds to actual available partitions string list provided by Rust
                         ComboBox { 
                             model: root.available_partitions; 
                             current-value: root.replace_partition_path; 
@@ -523,7 +511,7 @@ export component InstallerWindow inherits Window {
                 }
 
                 // =========================================================
-                // STEP 33: Advanced Partition Manager Window (GParted Data Loop)
+                // STEP 33: Advanced Partition Manager Window
                 // =========================================================
                 if (root.active_step == 33) : VerticalBox {
                     alignment: start; spacing: 12px; padding-left: 10px; padding-right: 10px;
@@ -578,7 +566,6 @@ export component InstallerWindow inherits Window {
                         }
                     }
 
-                    // FIX: Dropdowns appended explicitly for locking in Mount Point assignment
                     HorizontalBox {
                         alignment: space-between;
                         padding-top: 5px;
@@ -658,7 +645,7 @@ export component InstallerWindow inherits Window {
                 }
 
                 // =========================================================
-                // STEP 5: Browser Selection Window (List with Descriptions)
+                // STEP 5: Browser Selection Window 
                 // =========================================================
                 if (root.active_step == 5) : VerticalBox {
                     alignment: center; spacing: 10px; padding-left: 40px; padding-right: 40px;
@@ -672,12 +659,14 @@ export component InstallerWindow inherits Window {
                             width: 100%; height: 100%;
                             VerticalBox {
                                 padding: 8px; spacing: 6px;
-                                RadioOption { title: "1. Zen Browser (Recommended)"; description: "Highly optimized Firefox fork focused on privacy and speed."; active: root.selected_browser == "1. Zen Browser (Recommended)"; clicked => { root.selected_browser = "1. Zen Browser (Recommended)"; } }
+                                
+                                // FIX: Hidden Zen Browser in offline mode just like the rest!
+                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "1. Zen Browser"; description: "Highly optimized Firefox fork focused on privacy and speed."; active: root.selected_browser == "1. Zen Browser"; clicked => { root.selected_browser = "1. Zen Browser"; } }
                                 if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "2. LibreWolf"; description: "Customized version of Firefox prioritizing security and privacy."; active: root.selected_browser == "2. LibreWolf"; clicked => { root.selected_browser = "2. LibreWolf"; } }
                                 if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "3. Firefox"; description: "The standard open-source web browser engine."; active: root.selected_browser == "3. Firefox"; clicked => { root.selected_browser = "3. Firefox"; } }
                                 if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "4. Brave"; description: "Chromium-based browser with built-in tracker blocking."; active: root.selected_browser == "4. Brave"; clicked => { root.selected_browser = "4. Brave"; } }
-                                // FIX: Added Falkon natively to the UI selection
-                                RadioOption { title: "5. Falkon"; description: "Lightweight Qt web browser with native KDE/Arch integration."; active: root.selected_browser == "5. Falkon"; clicked => { root.selected_browser = "5. Falkon"; } }
+                                
+                                RadioOption { title: "5. Falkon (Recommended)"; description: "Lightweight, lightning-fast Qt-based browser integrating seamlessly with KDE."; active: root.selected_browser == "5. Falkon (Recommended)"; clicked => { root.selected_browser = "5. Falkon (Recommended)"; } }
                             }
                         }
                     }
@@ -690,7 +679,7 @@ export component InstallerWindow inherits Window {
                 }
 
                 // =========================================================
-                // STEP 51: Desktop Environment Selection (List with Descriptions)
+                // STEP 51: Desktop Environment Selection 
                 // =========================================================
                 if (root.active_step == 51) : VerticalBox {
                     alignment: center; spacing: 8px; padding-left: 30px; padding-right: 30px;
@@ -703,23 +692,24 @@ export component InstallerWindow inherits Window {
                             width: 100%; height: 100%;
                             VerticalBox {
                                 padding: 8px; spacing: 6px;
+                                
                                 RadioOption { title: "1. Hyprland"; description: "Visually pleasing dynamic tiling Wayland compositor."; active: root.selected_de == "1. Hyprland"; clicked => { root.selected_de = "1. Hyprland"; } }
-                                RadioOption { title: "2. KDE Plasma"; description: "Comprehensive, flexible desktop environment offering KWin."; active: root.selected_de == "2. KDE Plasma"; clicked => { root.selected_de = "2. KDE Plasma"; } }
-                                RadioOption { title: "3. XFCE"; description: "Modern, lightweight, stable traditional desktop drop-down layout."; active: root.selected_de == "3. XFCE"; clicked => { root.selected_de = "3. XFCE"; } }
-                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "4. GNOME"; description: "User-friendly environment with a modern layout."; active: root.selected_de == "4. GNOME"; clicked => { root.selected_de = "4. GNOME"; } }
+                                RadioOption { title: "2. KDE Plasma 6"; description: "Comprehensive, flexible next-gen Wayland desktop environment."; active: root.selected_de == "2. KDE Plasma 6"; clicked => { root.selected_de = "2. KDE Plasma 6"; } }
+                                RadioOption { title: "3. XFCE 4.18+"; description: "Modernized, lightweight, and rock-solid traditional desktop layout."; active: root.selected_de == "3. XFCE 4.18+"; clicked => { root.selected_de = "3. XFCE 4.18+"; } }
+                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "4. GNOME 46+"; description: "User-friendly environment with a modern, fluid touch layout."; active: root.selected_de == "4. GNOME 46+"; clicked => { root.selected_de = "4. GNOME 46+"; } }
                                 if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "5. Sway"; description: "Tiling Wayland compositor; dynamic drop-in i3 upgrade."; active: root.selected_de == "5. Sway"; clicked => { root.selected_de = "5. Sway"; } }
                                 if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "6. i3-wm"; description: "Popular X11 tiling manager leveraging clean text configurations."; active: root.selected_de == "6. i3-wm"; clicked => { root.selected_de = "6. i3-wm"; } }
-                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "7. Cinnamon"; description: "Traditional desktop paradigm balancing internal features."; active: root.selected_de == "7. Cinnamon"; clicked => { root.selected_de = "7. Cinnamon"; } }
+                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "7. Cinnamon"; description: "Traditional desktop paradigm balancing advanced internal features."; active: root.selected_de == "7. Cinnamon"; clicked => { root.selected_de = "7. Cinnamon"; } }
                                 if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "8. Niri"; description: "Scrollable tiling Wayland compositor optimizing fluid layout grid."; active: root.selected_de == "8. Niri"; clicked => { root.selected_de = "8. Niri"; } }
-                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "9. Qtile"; description: "Highly configurable environment scripted entirely in Python."; active: root.selected_de == "9. Qtile"; clicked => { root.selected_de = "9. Qtile"; } }
+                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "9. Qtile"; description: "Highly configurable X11/Wayland environment scripted entirely in Python."; active: root.selected_de == "9. Qtile"; clicked => { root.selected_de = "9. Qtile"; } }
                                 if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "10. Wayfire"; description: "Wlroots Wayland engine mixing structural performance aesthetics."; active: root.selected_de == "10. Wayfire"; clicked => { root.selected_de = "10. Wayfire"; } }
-                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "11. bspwm"; description: "Binary space partitioning X11 architecture tracking strict layouts."; active: root.selected_de == "11. bspwm"; clicked => { root.selected_de = "11. bspwm"; } }
-                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "12. Budgie"; description: "Clean and elegant GTK interface prioritizing modern ergonomics."; active: root.selected_de == "12. Budgie"; clicked => { root.selected_de = "12. Budgie"; } }
-                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "13. Cosmic"; description: "Modern performance Rust workspace for absolute responsiveness."; active: root.selected_de == "13. Cosmic"; clicked => { root.selected_de = "13. Cosmic"; } }
-                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "14. LXDE"; description: "Fast, lightweight X11 environment tailored for legacy hardware."; active: root.selected_de == "14. LXDE"; clicked => { root.selected_de = "14. LXDE"; } }
-                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "15. LXQt"; description: "Blazing fast lightweight environment engineered on the Qt stack."; active: root.selected_de == "15. LXQt"; clicked => { root.selected_de = "15. LXQt"; } }
+                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "11. bspwm"; description: "Binary space partitioning X11 architecture tracking strict window layouts."; active: root.selected_de == "11. bspwm"; clicked => { root.selected_de = "11. bspwm"; } }
+                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "12. Budgie"; description: "Clean and elegant GTK interface prioritizing absolute modern ergonomics."; active: root.selected_de == "12. Budgie"; clicked => { root.selected_de = "12. Budgie"; } }
+                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "13. Cosmic Epoch (Rust)"; description: "System76's modern Rust-based workspace constructed for absolute responsiveness."; active: root.selected_de == "13. Cosmic Epoch (Rust)"; clicked => { root.selected_de = "13. Cosmic Epoch (Rust)"; } }
+                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "14. LXDE"; description: "Fast, lightweight X11 environment tailored heavily for legacy hardware."; active: root.selected_de == "14. LXDE"; clicked => { root.selected_de = "14. LXDE"; } }
+                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "15. LXQt"; description: "Blazing fast lightweight environment engineered entirely on the Qt stack."; active: root.selected_de == "15. LXQt"; clicked => { root.selected_de = "15. LXQt"; } }
                                 if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "16. Mate"; description: "Classic GNOME 2 fork tracking legacy desktop layouts natively."; active: root.selected_de == "16. Mate"; clicked => { root.selected_de = "16. Mate"; } }
-                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "17. Openbox"; description: "Highly custom X11 window manager featuring extensive canvas styles."; active: root.selected_de == "17. Openbox"; clicked => { root.selected_de = "17. Openbox"; } }
+                                if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "17. Openbox"; description: "Highly custom X11 window manager featuring extensive internal canvas styling."; active: root.selected_de == "17. Openbox"; clicked => { root.selected_de = "17. Openbox"; } }
                             }
                         }
                     }
@@ -740,7 +730,7 @@ export component InstallerWindow inherits Window {
                 }
 
                 // =========================================================
-                // STEP 52: Boot Manager & Initialization (List with Descriptions)
+                // STEP 52: Boot Manager & Initialization 
                 // =========================================================
                 if (root.active_step == 52) : VerticalBox {
                     alignment: center; spacing: 8px; padding-left: 40px; padding-right: 40px;
@@ -753,10 +743,11 @@ export component InstallerWindow inherits Window {
                             width: 100%; height: 100%;
                             VerticalBox {
                                 padding: 8px; spacing: 6px;
-                                RadioOption { title: "1. GRUB"; description: "Flexible multi-boot loader; supports auto BTRFS snapshots."; active: root.selected_boot == "1. GRUB"; clicked => { root.selected_boot = "1. GRUB"; } }
-                                RadioOption { title: "2. systemd-boot"; description: "Light minimalist EFI manager tracking kernel slots."; active: root.selected_boot == "2. systemd-boot"; clicked => { root.selected_boot = "2. systemd-boot"; } }
-                                RadioOption { title: "3. rEFInd"; description: "Rich graphical shell automatically identifying boot options."; active: root.selected_boot == "3. rEFInd"; clicked => { root.selected_boot = "3. rEFInd"; } }
-                                RadioOption { title: "4. Limine"; description: "Modern lightning-fast system deployed cleanly via limine.conf."; active: root.selected_boot == "4. Limine"; clicked => { root.selected_boot = "4. Limine"; } }
+                                
+                                RadioOption { title: "1. GRUB (BIOS & UEFI)"; description: "Universal multi-boot loader; fully supports legacy BIOS and modern UEFI."; active: root.selected_boot == "1. GRUB (BIOS & UEFI)"; clicked => { root.selected_boot = "1. GRUB (BIOS & UEFI)"; } }
+                                RadioOption { title: "2. systemd-boot (UEFI Only)"; description: "Light minimalist EFI manager tracking kernel slots (No BIOS support)."; active: root.selected_boot == "2. systemd-boot (UEFI Only)"; clicked => { root.selected_boot = "2. systemd-boot (UEFI Only)"; } }
+                                RadioOption { title: "3. rEFInd (UEFI Only)"; description: "Rich graphical shell auto-detecting boot options (No BIOS support)."; active: root.selected_boot == "3. rEFInd (UEFI Only)"; clicked => { root.selected_boot = "3. rEFInd (UEFI Only)"; } }
+                                RadioOption { title: "4. Limine (BIOS & UEFI)"; description: "Modern lightning-fast universal system deployed cleanly via limine.conf."; active: root.selected_boot == "4. Limine (BIOS & UEFI)"; clicked => { root.selected_boot = "4. Limine (BIOS & UEFI)"; } }
                             }
                         }
                     }
@@ -791,7 +782,7 @@ export component InstallerWindow inherits Window {
                 }
 
                 // =========================================================
-                // STEP 6: Deployment Execution Screen (Crisp TextEdit Log)
+                // STEP 6: Deployment Execution Screen 
                 // =========================================================
                 if (root.active_step == 6) : VerticalBox {
                     alignment: center; spacing: 15px; padding-left: 50px; padding-right: 50px;
