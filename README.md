@@ -5,7 +5,6 @@
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg?style=flat-square)](https://www.gnu.org/licenses/agpl-3.0)
 [![Rust](https://img.shields.io/badge/Rust-1.70+-orange.svg?style=flat-square&logo=rust)](https://www.rust-lang.org/)
 [![Arch Linux](https://img.shields.io/badge/Arch_Linux-Rolling-1793d1.svg?style=flat-square&logo=arch-linux)](https://archlinux.org/)
-![](https://komarev.com/ghpvc/?username=eadxm&repo=Kestrel-Arch&color=blue)
 
 Kestrel Arch is an automated, hyper-optimized Arch Linux deployment system. It transforms a complex, multi-hour command-line installation into a flawless, 3-minute graphical deployment. Utilizing a memory-safe **Rust and Slint GUI** alongside a robust Bash provisioning backend, Kestrel dynamically scales to your hardware, firmware, and network environment.
 
