@@ -1,0 +1,13 @@
+version: 2
+updates:
+  # Tracks Rust dependencies for your Slint GUI installer
+  - package-ecosystem: "cargo"
+    directory: "/airootfs/gui-src"
+    schedule:
+      interval: "weekly"
+
+  # Tracks and updates your GitHub Actions workflow files
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
