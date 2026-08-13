@@ -132,68 +132,58 @@ jobs:
       - name: Deploy to Hugging Face
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          HF_REPO: ${{ secrets.HF_REPO }}
+          HF_REPO: ${{ secrets.HF_REPO_OFFLINE }}
         run: |
-          echo "=> Installing Git LFS..."
-          pacman -Sy --noconfirm git-lfs
+          echo "=> Installing Git LFS and Python..."
+          pacman -Sy --noconfirm git-lfs python-pip
+          pip install huggingface_hub --break-system-packages
           
-          echo "=> Preparing ISO for Hugging Face deployment..."
+          echo "=> Preparing ISO..."
           ISO_FILE=$(ls out/*.iso 2>/dev/null | head -n 1)
           if [ -z "$ISO_FILE" ]; then
             echo "ERROR: No ISO file found in out/"
             exit 1
           fi
-          
           ISO_NAME=$(basename "$ISO_FILE")
           
-          echo "=> Fast-cloning repo WITHOUT downloading old massive ISOs..."
+          echo "=> VAPORIZING and recreating the Hugging Face repository..."
+          python -c "
+          import os
+          from huggingface_hub import HfApi
+          api = HfApi(token=os.environ.get('HF_TOKEN'))
+          repo = os.environ.get('HF_REPO')
+          
+          try:
+              api.delete_repo(repo_id=repo, repo_type='dataset')
+              print(f'Successfully deleted {repo}')
+          except Exception as e:
+              print(f'Repo might not exist yet: {e}')
+              
+          api.create_repo(repo_id=repo, repo_type='dataset', private=False)
+          print(f'Created fresh, empty repo {repo}')
+          "
+          
+          echo "=> Cloning the fresh repository..."
           git lfs install
-          GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 https://user:$HF_TOKEN@huggingface.co/datasets/$HF_REPO hf_dataset
+          git clone https://user:$HF_TOKEN@huggingface.co/datasets/$HF_REPO hf_dataset
           cd hf_dataset
           
           git config user.name "Kestrel Bot"
           git config user.email "actions@users.noreply.github.com"
           
-          # Safely delete ONLY the offline ISOs so we don't wipe the online ISO pointer
-          if [[ "$ISO_NAME" == *"offline"* ]] || [[ "$ISO_NAME" == *"Offline"* ]]; then
-            rm -f *offline*.iso *Offline*.iso
-          else
-            rm -f *online*.iso *Online*.iso
-          fi
-          
           cp ../$ISO_FILE ./
-          
           git lfs track "*.iso"
-          git checkout --orphan fresh_branch
           
           git add .
           git commit -m "Automated Offline ISO deployment: $ISO_NAME [skip ci]"
+          git push origin main
           
-          git branch -D main 2>/dev/null || true
-          git branch -m main
-          git push origin main --force
-          
-          echo "=> Git push successful. Installing Python Hub Library for backend LFS purge..."
-          pacman -Sy --noconfirm python-pip
-          pip install huggingface_hub --break-system-packages
-
-          echo "=> Triggering server-side LFS purge on Hugging Face..."
-          python -c "
-          import os
-          from huggingface_hub import HfApi
-          
-          api = HfApi(token=os.environ.get('HF_TOKEN'))
-          api.super_squash_history(
-              repo_id=os.environ.get('HF_REPO'), 
-              repo_type='dataset'
-          )
-          "
-          echo "=> Hugging Face deployment and full history reset successful!"
+          echo "=> Hugging Face nuclear deployment successful! Storage bloat is now 0 bytes."
 
       - name: Create or Update Rolling GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HF_REPO: ${{ secrets.HF_REPO }}
+          HF_REPO: ${{ secrets.HF_REPO_OFFLINE }}
         run: |
           ISO_FILE=$(basename $(ls out/*.iso 2>/dev/null | head -n 1))
           
