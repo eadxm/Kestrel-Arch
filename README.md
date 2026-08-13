@@ -1,7 +1,7 @@
 #  Kestrel Arch Deployment Engine
 
 [![Build Status](https://img.shields.io/github/actions/workflow/status/eadxm/Kestrel-Arch/build.yml?branch=main&style=flat-square)](https://github.com/eadxm/Kestrel-Arch/actions)
-[![Hosted on Hugging Face](https://img.shields.io/badge/🤗%20Hosted_on-Hugging_Face-ffce3a.svg?style=flat-square)](https://huggingface.co/datasets/eadxm/Kestrel-Arch)
+[![Hosted on Hugging Face](https://img.shields.io/badge/🤗%20Hosted_on-Hugging_Face-ffce3a.svg?style=flat-square)](https://huggingface.co/datasets/eadxm)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg?style=flat-square)](https://www.gnu.org/licenses/agpl-3.0)
 [![Rust](https://img.shields.io/badge/Rust-1.70+-orange.svg?style=flat-square&logo=rust)](https://www.rust-lang.org/)
 [![Arch Linux](https://img.shields.io/badge/Arch_Linux-Rolling-1793d1.svg?style=flat-square&logo=arch-linux)](https://archlinux.org/)
