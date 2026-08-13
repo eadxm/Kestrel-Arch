@@ -5,12 +5,16 @@ on:
     branches: [ "main" ]
     paths-ignore:
       - '**.md'
+      - 'CNAME'
       - 'LICENSE'
+      - '.github/workflows/pages-build-deployment.yml'
+      - 'docs/**'
       - 'bootstrap'
       - 'bootstrap/**'
   workflow_dispatch:
   schedule:
     - cron: '30 3 * * *'
+
 jobs:
   build-archiso-online:
     runs-on: ubuntu-latest
@@ -123,8 +127,12 @@ jobs:
           git config user.name "Kestrel Bot"
           git config user.email "actions@users.noreply.github.com"
           
-          # FIX: Quotes added to prevent bash syntax errors with parentheses
-          rm -f "Kestrel-Arch(online)"*.iso
+          # Safely delete ONLY the online ISOs so we don't wipe the offline ISO pointer
+          if [[ "$ISO_NAME" == *"online"* ]] || [[ "$ISO_NAME" == *"Online"* ]]; then
+            rm -f *online*.iso *Online*.iso
+          else
+            rm -f *offline*.iso *Offline*.iso
+          fi
           
           # Copy the fresh ISO into the dataset folder
           cp ../$ISO_FILE ./
@@ -144,7 +152,22 @@ jobs:
           git branch -m main
           git push origin main --force
           
-          echo "=> Hugging Face deployment and history reset successful!"
+          echo "=> Git push successful. Installing Python Hub Library for backend LFS purge..."
+          pacman -Sy --noconfirm python-pip
+          pip install huggingface_hub --break-system-packages
+
+          echo "=> Triggering server-side LFS purge on Hugging Face..."
+          python -c "
+          import os
+          from huggingface_hub import HfApi
+          
+          api = HfApi(token=os.environ.get('HF_TOKEN'))
+          api.super_squash_history(
+              repo_id=os.environ.get('HF_REPO'), 
+              repo_type='dataset'
+          )
+          "
+          echo "=> Hugging Face deployment and full history reset successful!"
 
       - name: Create or Update Rolling GitHub Release
         env:
