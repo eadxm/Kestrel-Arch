@@ -110,7 +110,7 @@ We provide two pre-compiled ISO variants, both hosted on our lightning-fast **Hu
 * **Offline ISO (~4.3 GB):** Features a full package cache. Deploy a complete desktop environment without an active internet connection.
 * **Online ISO (~1.7 GB):** A lightweight net-installer that fetches the absolute latest packages during deployment.
 
-1. **Download:** Navigate to the **[Releases](../../releases)** tab and click the direct CDN download link for your preferred ISO variant.
+1. **Download:** Navigate to the **[Releases](https://github.com/eadxm/Kestrel-Arch/releases)** tab and click the direct CDN download link for your preferred ISO variant.
 2. **Flash:** Write the ISO to a USB drive using [Rufus](https://rufus.ie/) (DD Mode), [BalenaEtcher](https://balena.io/etcher/), or [Ventoy](https://www.ventoy.net).
 3. **Deploy:** Boot from the USB. The system auto-launches the Kestrel UI.
 4. **Configure:** Select your target drive, input user credentials, select your environment, and click **Initialize Protocol**.
