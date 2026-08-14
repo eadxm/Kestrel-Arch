@@ -65,10 +65,9 @@ if [ "$UI_CHOICE" = "1" ]; then
     echo "=> Syncing package databases..."
     pacman -Sy --noconfirm || true
     
-    # 2. NUCLEAR CACHE FLUSH: Bypasses pacman's fragile fd reading
+    # 2. NUCLEAR CACHE FLUSH: ONLY delete the package tarballs, NOT the sync databases!
     echo "=> Reclaiming RAM disk space..."
     rm -rf /var/cache/pacman/pkg/*
-    rm -rf /var/lib/pacman/sync/*
     
     # 3. Add --needed so we NEVER reinstall packages that already exist
     echo "=> Installing Wayland, Cage, and UI Dependencies..."
