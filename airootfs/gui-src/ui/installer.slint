@@ -801,14 +801,23 @@ export component InstallerWindow inherits Window {
                     if (root.show_console) : Rectangle {
                         background: #000000; border-radius: 8px; border-width: 1px; border-color: #1F2937; height: 220px; width: 100%; clip: true; 
                         
-                        TextEdit {
+                        ScrollView {
                             width: 100%;
                             height: 100%;
-                            text: InstallerLogic.console_log;
-                            font-size: 12px;
-                            font-family: "Cascadia Code, Consolas, monospace";
-                            read-only: true;
-                            wrap: word-wrap;
+                            
+                            VerticalBox {
+                                padding: 10px;
+                                alignment: start;
+                                
+                                Text {
+                                    text: InstallerLogic.console_log;
+                                    color: #FFFFFF; // Pure white text to contrast the pure black background
+                                    font-size: 12px;
+                                    font-family: "Cascadia Code, Consolas, monospace";
+                                    wrap: word-wrap;
+                                    horizontal-alignment: left;
+                                }
+                            }
                         }
                     }
                 }
