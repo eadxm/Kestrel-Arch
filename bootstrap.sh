@@ -72,16 +72,11 @@ if [ "$UI_CHOICE" = "1" ]; then
     rm -rf /var/cache/pacman/pkg/*
     
     # 3. Install core GUI dependencies.
-    # --overwrite "*" bulldozes old ISO conflicts.
-    # --assume-installed blocks hundreds of MBs of useless GTK3 printing/tablet/cloud bloat.
-    echo "=> Installing Wayland, Cage, and UI Dependencies..."
+    # We explicitly upgrade glibc and gcc-libs to fix the GLIBC_2.43 mismatch on older ISOs.
+    # --overwrite "*" bulldozes old ISO conflicts safely.
+    echo "=> Installing Core Libraries, Wayland, Cage, and UI Dependencies..."
     pacman -S --noconfirm --needed --overwrite "*" \
-        --assume-installed libcups \
-        --assume-installed avahi \
-        --assume-installed libwacom \
-        --assume-installed libcloudproviders \
-        --assume-installed tinysparql \
-        cage wayland gparted polkit noto-fonts pciutils
+        glibc gcc-libs cage wayland gparted polkit noto-fonts pciutils
     
     # 4. Final nuclear flush before fetching the GUI
     echo "=> Clearing final package cache..."
