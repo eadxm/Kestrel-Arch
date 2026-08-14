@@ -4,6 +4,7 @@ use std::process::{Command, Stdio};
 use std::io::{BufRead, BufReader};
 use std::thread;
 use std::rc::Rc;
+use std::time::{Instant, Duration};
 use slint::{ModelRc, SharedString, VecModel};
 
 // Helper function to format raw bytes into human-readable strings for the UI table
@@ -373,10 +374,19 @@ fn main() -> Result<(), slint::PlatformError> {
             let reader = BufReader::new(stdout);
 
             let mut current_progress: f32 = 0.0;
-            let mut full_log = String::from("> Initiating Kestrel Arch Deployment Protocol...\n> Reading configuration matrix...\n");
+            
+            // 60FPS THROTTLE: Use a vector to manage the scrollback buffer
+            let mut log_lines: Vec<String> = vec![
+                "> Initiating Kestrel Arch Deployment Protocol...".to_string(),
+                "> Reading configuration matrix...".to_string(),
+            ];
+
+            let mut last_ui_update = Instant::now();
+            let update_interval = Duration::from_millis(16); // 16ms = ~60 FPS
 
             for line in reader.lines() {
                 if let Ok(output) = line {
+                    // Update progress metrics
                     if output.contains("Formatting") || output.contains("partition") {
                         current_progress = 0.25;
                     } else if output.contains("pacstrap") || output.contains("Installing") {
@@ -385,32 +395,43 @@ fn main() -> Result<(), slint::PlatformError> {
                         current_progress = 0.85;
                     }
 
-                    full_log.push_str("> ");
-                    full_log.push_str(&output);
-                    full_log.push('\n');
+                    // Append the new line
+                    log_lines.push(format!("> {}", output));
 
-                    let status_text = output.clone();
-                    let log_update = full_log.clone();
-                    
-                    slint::invoke_from_event_loop({
-                        let ui_handle = ui_handle.clone();
-                        move || {
-                            if let Some(ui) = ui_handle.upgrade() {
-                                ui.global::<InstallerLogic>().set_status_text(status_text.into());
-                                ui.global::<InstallerLogic>().set_progress(current_progress);
-                                ui.global::<InstallerLogic>().set_console_log(log_update.into());
+                    // AGGRESSIVE CAP: Keep scrollback to the last 100 lines for ultra-fast layout rendering
+                    if log_lines.len() > 100 {
+                        log_lines.remove(0);
+                    }
+
+                    // THROTTLE: Fire updates exactly at 60Hz
+                    if last_ui_update.elapsed() >= update_interval {
+                        let status_text = output.clone();
+                        let log_update = log_lines.join("\n");
+                        
+                        slint::invoke_from_event_loop({
+                            let ui_handle = ui_handle.clone();
+                            move || {
+                                if let Some(ui) = ui_handle.upgrade() {
+                                    ui.global::<InstallerLogic>().set_status_text(status_text.into());
+                                    ui.global::<InstallerLogic>().set_progress(current_progress);
+                                    ui.global::<InstallerLogic>().set_console_log(log_update.into());
+                                }
                             }
-                        }
-                    }).unwrap();
+                        }).unwrap();
+
+                        last_ui_update = Instant::now();
+                    }
                 }
             }
             
             let status = child.wait().expect("Failed to wait on backend process");
 
             if !status.success() {
-                full_log.push_str("\n[!] CRITICAL FAULT: Deployment process exited with a non-zero status code. Read logs above for details.");
+                log_lines.push("\n[!] CRITICAL FAULT: Deployment process exited with a non-zero status code. Read logs above for details.".to_string());
             }
-            let final_log = full_log.clone();
+            
+            // Final sync after the process exits
+            let final_log = log_lines.join("\n");
 
             slint::invoke_from_event_loop({
                 let ui_handle = ui_handle.clone();
