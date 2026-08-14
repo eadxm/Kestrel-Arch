@@ -6,7 +6,7 @@ set -eE -o pipefail
 exec 2>&1
 
 # =====================================================================
-#             FAIL-SAFE TELEMETRY AND ERROR TRAPPING ENGINE
+#              FAIL-SAFE TELEMETRY AND ERROR TRAPPING ENGINE
 # =====================================================================
 STATUS_FILE="/tmp/kestrel_status"
 
@@ -101,7 +101,7 @@ echo ""
 TARGET="/mnt"
 ISO_CACHE="/opt/offline_cache"
 GRUB_OS_PROBER="true" 
-EFI_DIR="/boot/efi"
+EFI_DIR="/boot" # <--- FIX: Global EFI Mount Point changed to /boot
 DISPLAY_MANAGER="sddm"
 
 # =====================================================================
@@ -259,8 +259,8 @@ while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
                 if [ "$FILESYSTEM" = "btrfs" ]; then mkfs.btrfs -f "$ARCH_ROOT"; else mkfs.ext4 -F "$ARCH_ROOT"; fi
                 
                 mount "$ARCH_ROOT" "$TARGET"
-                mkdir -p "$TARGET/boot/efi"
-                mount -t vfat "$ARCH_EFI" "$TARGET/boot/efi"
+                mkdir -p "$TARGET$EFI_DIR"
+                mount -t vfat "$ARCH_EFI" "$TARGET$EFI_DIR"
             else
                 parted -s "$TARGET_DRIVE" mklabel msdos
                 parted -s -a optimal "$TARGET_DRIVE" mkpart primary "$FILESYSTEM" 2MiB 100%
@@ -314,8 +314,8 @@ while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
                 else
                     ARCH_EFI="${GUI_EFI_PART:-${TARGET_DRIVE}${PART_PREFIX}1}"
                 fi
-                mkdir -p "$TARGET/boot/efi"
-                mount -t vfat "$ARCH_EFI" "$TARGET/boot/efi"
+                mkdir -p "$TARGET$EFI_DIR"
+                mount -t vfat "$ARCH_EFI" "$TARGET$EFI_DIR"
             fi
             GRUB_OS_PROBER="false"
             PROVISIONING_COMPLETE=1
@@ -392,8 +392,8 @@ while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
                                 wipefs -a "$ARCH_EFI" &>/dev/null || true
                                 mkfs.vfat -F 32 "$ARCH_EFI"
                             fi
-                            mkdir -p "$TARGET/boot/efi"
-                            if mount -t vfat "$ARCH_EFI" "$TARGET/boot/efi"; then break; else echo "[ERROR] Mount failed."; fi
+                            mkdir -p "$TARGET$EFI_DIR"
+                            if mount -t vfat "$ARCH_EFI" "$TARGET$EFI_DIR"; then break; else echo "[ERROR] Mount failed."; fi
                         else echo "[ERROR] Invalid partition path."; fi
                     done
                 else
@@ -418,9 +418,9 @@ while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
                 
                 if [ -d "/sys/firmware/efi" ]; then
                     if [ -n "$GUI_EFI_PART" ] && [ -b "$GUI_EFI_PART" ]; then
-                        echo "[INFO] Safely mounting $GUI_EFI_PART to /boot/efi (Preserving existing bootloaders)..."
-                        mkdir -p "$TARGET/boot/efi"
-                        mount -t vfat "$GUI_EFI_PART" "$TARGET/boot/efi"
+                        echo "[INFO] Safely mounting $GUI_EFI_PART to $EFI_DIR (Preserving existing bootloaders)..."
+                        mkdir -p "$TARGET$EFI_DIR"
+                        mount -t vfat "$GUI_EFI_PART" "$TARGET$EFI_DIR"
                     else
                         echo "[ERROR] UEFI system requires an EFI partition, but GUI did not map one."
                         exit 1
@@ -776,6 +776,10 @@ case $BOOT_CHOICE in
     2)
         # systemd-boot (UEFI Only)
         arch-chroot "$TARGET" bootctl install
+        
+        # BULLETPROOF FIX: Explicitly ensure the entries directory is created
+        mkdir -p "$TARGET/boot/loader/entries"
+        
         echo -e "default arch.conf\ntimeout 5" > "$TARGET/boot/loader/loader.conf"
         
         {
@@ -811,17 +815,17 @@ EOF
 
         if [ -d "/sys/firmware/efi" ]; then
             # --- UEFI LIMINE DEPLOYMENT & CHAINLOADING ---
-            mkdir -p "$TARGET/boot/efi/EFI/BOOT"
-            cp "$TARGET/usr/share/limine/BOOTX64.EFI" "$TARGET/boot/efi/EFI/BOOT/BOOTX64.EFI"
+            mkdir -p "$TARGET$EFI_DIR/EFI/BOOT"
+            cp "$TARGET/usr/share/limine/BOOTX64.EFI" "$TARGET$EFI_DIR/EFI/BOOT/BOOTX64.EFI"
             
             if [ "$GRUB_OS_PROBER" = "true" ]; then
                 update_status "PROGRESS: Scanning EFI for other Operating Systems..."
                 echo "[INFO] Searching for existing UEFI bootloaders..."
                 
                 # Dynamically scans the EFI partition for OTHER bootloaders (Windows, Ubuntu, Fedora, etc)
-                for efi_file in $(find "$TARGET/boot/efi/EFI" -iname "*.efi" -type f 2>/dev/null || true); do
+                for efi_file in $(find "$TARGET$EFI_DIR/EFI" -iname "*.efi" -type f 2>/dev/null || true); do
                     # Strip the mount path so we just get /EFI/...
-                    rel_path=$(echo "$efi_file" | sed "s|$TARGET/boot/efi||")
+                    rel_path=$(echo "$efi_file" | sed "s|$TARGET$EFI_DIR||")
                     
                     # Ignore Limine's own bootloader, systemd fallbacks, and standard bootx64.efi
                     if echo "$rel_path" | grep -iqE "bootx64.efi|systemd-boot|limine"; then continue; fi
