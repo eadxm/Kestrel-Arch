@@ -48,7 +48,6 @@ done
 # Fetch Kestrel Backend Engine
 echo "=> Fetching Kestrel Backend Engine..."
 mkdir -p /usr/local/bin
-# Added -f to fail instantly if 404, and sync to prevent I/O race conditions
 curl -sfL "https://raw.githubusercontent.com/${GITHUB_REPO}/refs/heads/main/airootfs/usr/local/bin/install.sh" -o /usr/local/bin/install.sh
 sync
 chmod +x /usr/local/bin/install.sh
@@ -63,38 +62,35 @@ if [ "$UI_CHOICE" = "1" ]; then
     pacman-key --init >/dev/null 2>&1 || true
     pacman-key --populate archlinux >/dev/null 2>&1 || true
 
-    # 1. Sync databases ONLY (No full system upgrade to prevent RAM suffocation)
-    echo "=> Syncing package databases..."
-    pacman -Sy --noconfirm || true
+    # 1. THE MINIMAL FULL UPGRADE
+    # We update the core C-libraries (glibc) so new binaries don't crash, 
+    # but we block the massive kernel/firmware updates to save RAM.
+    echo "=> Performing minimal core system upgrade..."
+    pacman -Syu --ignore "linux,linux-firmware*,intel-ucode,amd-ucode,linux-api-headers,mkinitcpio,sof-firmware,open-vm-tools,virtualbox-guest-utils-nox,vim*,zsh,openvpn,openconnect,man-db,man-pages,nmap,tcpdump,python*,perl*,lvm2,mdadm,nftables,iptables,openssh,partclone,sqlite,cloud-init,hyperv,bolt,broadcom-wl,bcachefs-tools,libtorrent-rasterbar,screen,sg3_utils,tpm2-tools" --noconfirm || true
     
-    # 2. NUCLEAR CACHE FLUSH: ONLY delete the package tarballs, NOT the sync databases!
+    # 2. INSTANT NUCLEAR CACHE FLUSH (Crucial for 2GB VMs)
     echo "=> Reclaiming RAM disk space..."
     rm -rf /var/cache/pacman/pkg/*
     
     # 3. Install core GUI dependencies.
-    # We explicitly upgrade glibc and gcc-libs to fix the GLIBC_2.43 mismatch on older ISOs.
-    # --overwrite "*" bulldozes old ISO conflicts safely.
-    echo "=> Installing Core Libraries, Wayland, Cage, and UI Dependencies..."
-    pacman -S --noconfirm --needed --overwrite "*" \
-        glibc gcc-libs cage wayland gparted polkit noto-fonts pciutils
+    # No --overwrite needed because the system is fully up to date!
+    echo "=> Installing Wayland, Cage, and UI Dependencies..."
+    pacman -S --noconfirm --needed cage wayland gparted polkit noto-fonts pciutils
     
     # 4. Final nuclear flush before fetching the GUI
     echo "=> Clearing final package cache..."
     rm -rf /var/cache/pacman/pkg/*
     
     echo "=> Fetching Kestrel GUI Binary..."
-    # Added -f to fail instantly if 404, and sync to prevent I/O race conditions
     curl -sfL "https://github.com/${GITHUB_REPO}/releases/latest/download/kestrel-gui" -o /usr/local/bin/kestrel-gui
     sync
     chmod +x /usr/local/bin/kestrel-gui
 
     echo "=> Initializing Wayland Compositor Environment..."
-    # 1. Secure Runtime Directory (Mandatory for Wayland as root)
     export XDG_RUNTIME_DIR=/run/user/$(id -u)
     mkdir -p "$XDG_RUNTIME_DIR"
     chmod 0700 "$XDG_RUNTIME_DIR"
     
-    # 2. Universal Wayland/Slint Fallback Variables
     export WLR_NO_HARDWARE_CURSORS=1
     export WLR_RENDERER_ALLOW_SOFTWARE=1
     export LIBGL_ALWAYS_SOFTWARE=1
