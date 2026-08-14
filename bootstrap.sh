@@ -64,18 +64,19 @@ if [ "$UI_CHOICE" = "1" ]; then
 
     # 1. THE MINIMAL FULL UPGRADE
     # We update the core C-libraries (glibc) so new binaries don't crash, 
-    # but we block the massive kernel/firmware updates to save RAM.
+    # block the massive kernel/firmware updates to save RAM, and use --overwrite "*"
+    # to bulldoze any package split conflicts (like gcc-libs -> libgcc).
     echo "=> Performing minimal core system upgrade..."
-    pacman -Syu --ignore "linux,linux-firmware*,intel-ucode,amd-ucode,linux-api-headers,mkinitcpio,sof-firmware,open-vm-tools,virtualbox-guest-utils-nox,vim*,zsh,openvpn,openconnect,man-db,man-pages,nmap,tcpdump,python*,perl*,lvm2,mdadm,nftables,iptables,openssh,partclone,sqlite,cloud-init,hyperv,bolt,broadcom-wl,bcachefs-tools,libtorrent-rasterbar,screen,sg3_utils,tpm2-tools" --noconfirm || true
+    pacman -Syu --overwrite "*" --ignore "linux,linux-firmware*,intel-ucode,amd-ucode,linux-api-headers,mkinitcpio,sof-firmware,open-vm-tools,virtualbox-guest-utils-nox,vim*,zsh,openvpn,openconnect,man-db,man-pages,nmap,tcpdump,python*,perl*,lvm2,mdadm,nftables,iptables,openssh,partclone,sqlite,cloud-init,hyperv,bolt,broadcom-wl,bcachefs-tools,libtorrent-rasterbar,screen,sg3_utils,tpm2-tools" --noconfirm || true
     
     # 2. INSTANT NUCLEAR CACHE FLUSH (Crucial for 2GB VMs)
     echo "=> Reclaiming RAM disk space..."
     rm -rf /var/cache/pacman/pkg/*
     
     # 3. Install core GUI dependencies.
-    # No --overwrite needed because the system is fully up to date!
+    # --overwrite "*" is kept here as a final fail-safe for any lingering file conflicts.
     echo "=> Installing Wayland, Cage, and UI Dependencies..."
-    pacman -S --noconfirm --needed cage wayland gparted polkit noto-fonts pciutils
+    pacman -S --noconfirm --needed --overwrite "*" cage wayland gparted polkit noto-fonts pciutils
     
     # 4. Final nuclear flush before fetching the GUI
     echo "=> Clearing final package cache..."
