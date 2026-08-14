@@ -64,7 +64,7 @@ if [ "$UI_CHOICE" = "1" ]; then
     # The DIET UPGRADE: Block firmware, kernels, languages, and server bloat. 
     # (|| true prevents harmless mkinitcpio hook failures from stopping the script)
     echo "=> Upgrading base libraries safely..."
-    pacman -Syu --ignore "linux,linux-firmware*,intel-ucode,amd-ucode,linux-api-headers,mkinitcpio,sof-firmware,open-vm-tools,virtualbox-guest-utils-nox,vim*,zsh,openvpn,openconnect,man-db,man-pages,nmap,tcpdump,python*,perl*,lvm2,mdadm,nftables,iptables,openssh,partclone,sqlite" --noconfirm || true
+    pacman -Syu --ignore "linux,linux-firmware*,intel-ucode,amd-ucode,linux-api-headers,mkinitcpio,sof-firmware,open-vm-tools,virtualbox-guest-utils-nox,vim*,zsh,openvpn,openconnect,man-db,man-pages,nmap,tcpdump,python*,perl*,lvm2,mdadm,nftables,iptables,openssh,partclone,sqlite,cloud-init,hyperv,bolt,broadcom-wl,bcachefs-tools,libtorrent-rasterbar,screen,sg3_utils,tpm2-tools" --noconfirm || true
     
     # INSTANT CACHE FLUSH: Prevent tmpfs from filling up before the GUI install
     echo "=> Flushing upgrade cache to restore RAM disk space..."
