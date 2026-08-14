@@ -686,7 +686,15 @@ genfstab -U "$TARGET" >> "$TARGET/etc/fstab"
 #              CHROOT SYSTEM CONFIGURATION & TARGET INITIALIZATION
 # =====================================================================
 update_status "PROGRESS: Configuring Base System and Chroot..."
-arch-chroot "$TARGET" useradd -m -G wheel -s /bin/bash "$username"
+
+# FIX: Check if user exists before attempting to create them
+if ! arch-chroot "$TARGET" id "$username" &>/dev/null; then
+    arch-chroot "$TARGET" useradd -m -G wheel -s /bin/bash "$username"
+else
+    echo "[INFO] User $username already exists. Updating groups and shell..."
+    arch-chroot "$TARGET" usermod -aG wheel -s /bin/bash "$username"
+fi
+
 printf '%s:%s\n' "$username" "$user_password" | arch-chroot "$TARGET" chpasswd
 printf '%s:%s\n' "root" "$root_password" | arch-chroot "$TARGET" chpasswd
 printf '%s\n' "$system_hostname" > "$TARGET/etc/hostname"
