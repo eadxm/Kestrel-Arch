@@ -48,7 +48,9 @@ done
 # Fetch Kestrel Backend Engine
 echo "=> Fetching Kestrel Backend Engine..."
 mkdir -p /usr/local/bin
-curl -sL "https://raw.githubusercontent.com/${GITHUB_REPO}/refs/heads/main/airootfs/usr/local/bin/install.sh" -o /usr/local/bin/install.sh
+# Added -f to fail instantly if 404, and sync to prevent I/O race conditions
+curl -sfL "https://raw.githubusercontent.com/${GITHUB_REPO}/refs/heads/main/airootfs/usr/local/bin/install.sh" -o /usr/local/bin/install.sh
+sync
 chmod +x /usr/local/bin/install.sh
 
 if [ "$UI_CHOICE" = "1" ]; then
@@ -69,16 +71,26 @@ if [ "$UI_CHOICE" = "1" ]; then
     echo "=> Reclaiming RAM disk space..."
     rm -rf /var/cache/pacman/pkg/*
     
-    # 3. Add --needed so we NEVER reinstall packages that already exist
+    # 3. Install core GUI dependencies.
+    # --overwrite "*" bulldozes old ISO conflicts.
+    # --assume-installed blocks hundreds of MBs of useless GTK3 printing/tablet/cloud bloat.
     echo "=> Installing Wayland, Cage, and UI Dependencies..."
-    pacman -S --noconfirm --needed cage wayland ttf-dejavu gparted polkit ttf-liberation noto-fonts pciutils
+    pacman -S --noconfirm --needed --overwrite "*" \
+        --assume-installed libcups \
+        --assume-installed avahi \
+        --assume-installed libwacom \
+        --assume-installed libcloudproviders \
+        --assume-installed tinysparql \
+        cage wayland gparted polkit noto-fonts pciutils
     
     # 4. Final nuclear flush before fetching the GUI
     echo "=> Clearing final package cache..."
     rm -rf /var/cache/pacman/pkg/*
     
     echo "=> Fetching Kestrel GUI Binary..."
-    curl -sL "https://github.com/${GITHUB_REPO}/releases/latest/download/kestrel-gui" -o /usr/local/bin/kestrel-gui
+    # Added -f to fail instantly if 404, and sync to prevent I/O race conditions
+    curl -sfL "https://github.com/${GITHUB_REPO}/releases/latest/download/kestrel-gui" -o /usr/local/bin/kestrel-gui
+    sync
     chmod +x /usr/local/bin/kestrel-gui
 
     echo "=> Initializing Wayland Compositor Environment..."
