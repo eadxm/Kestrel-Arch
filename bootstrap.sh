@@ -82,17 +82,26 @@ if [ "$UI_CHOICE" = "1" ]; then
     curl -sL "https://github.com/${GITHUB_REPO}/releases/latest/download/kestrel-gui" -o /usr/local/bin/kestrel-gui
     chmod +x /usr/local/bin/kestrel-gui
 
-    echo "=> Launching Engine..."
+    echo "=> Initializing Wayland Compositor Environment..."
+    # 1. Secure Runtime Directory (Mandatory for Wayland as root)
     export XDG_RUNTIME_DIR=/run/user/$(id -u)
+    mkdir -p "$XDG_RUNTIME_DIR"
+    chmod 0700 "$XDG_RUNTIME_DIR"
+    
+    # 2. Universal Wayland/Slint Fallback Variables
     export WLR_NO_HARDWARE_CURSORS=1
     export WLR_RENDERER_ALLOW_SOFTWARE=1
+    export LIBGL_ALWAYS_SOFTWARE=1
+    export SLINT_BACKEND=winit
     
     IS_VM=$(systemd-detect-virt -q && echo 1 || echo 0)
     HAS_NVIDIA=$(lspci | grep -iE "vga.*nvidia|3d.*nvidia" >/dev/null 2>&1 && echo 1 || echo 0)
     if [ "$IS_VM" = "1" ] || [ "$HAS_NVIDIA" = "1" ]; then
+        echo "[INFO] VM or NVIDIA detected. Forcing pure software rendering (Pixman)..."
         export WLR_RENDERER=pixman
     fi
     
+    echo "=> Launching Kestrel GUI..."
     cage -s -- /usr/local/bin/kestrel-gui
 
 else
