@@ -27,12 +27,14 @@ export global InstallerLogic {
     
     callback launch_gparted(string);
     callback fetch_partitions(string); 
+    callback close_installer();
     
     in-out property <[PartitionData]> current_partitions;
     
     in property <float> progress: 0.0;
     in property <string> status_text: "Ready to deploy.";
     in property <string> console_log: "> System pre-flight checks passed.\n> Standing by for deployment protocol...\n";
+    in property <bool> install_failed: false;
 }
 
 component GlowingButton inherits Rectangle {
@@ -823,6 +825,15 @@ export component InstallerWindow inherits Window {
                                     horizontal-alignment: left;
                                 }
                             }
+                        }
+                    }
+
+                    if (InstallerLogic.install_failed) : HorizontalBox {
+                        alignment: center; padding-top: 15px;
+                        GlowingButton { 
+                            text: "Close Installer"; 
+                            primary: true; 
+                            clicked => { InstallerLogic.close_installer(); } 
                         }
                     }
                 }
