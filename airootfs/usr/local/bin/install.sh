@@ -265,7 +265,7 @@ while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
                 echo "[INFO] Formatting $ARCH_EFI to FAT32..."
                 mkfs.vfat -F 32 "$ARCH_EFI"
                 echo "[INFO] Formatting $ARCH_ROOT to $FILESYSTEM..."
-                if [ "$FILESYSTEM" = "btrfs" ]; then mkfs.btrfs -f "$ARCH_ROOT"; else mkfs.ext4 -F "$ARCH_ROOT"; fi
+                if [ "$FILESYSTEM" = "btrfs" ]; then mkfs.btrfs -f "$ARCH_ROOT"; else mkfs.ext4 -O ^orphan_file,^metadata_csum_seed -F "$ARCH_ROOT"; fi
                 
                 mount "$ARCH_ROOT" "$TARGET"
                 mkdir -p "$TARGET$EFI_DIR"
@@ -281,7 +281,7 @@ while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
                 wipefs -a "$ARCH_ROOT" &>/dev/null || true
                 
                 echo "[INFO] Formatting $ARCH_ROOT to $FILESYSTEM..."
-                if [ "$FILESYSTEM" = "btrfs" ]; then mkfs.btrfs -f "$ARCH_ROOT"; else mkfs.ext4 -F "$ARCH_ROOT"; fi
+                if [ "$FILESYSTEM" = "btrfs" ]; then mkfs.btrfs -f "$ARCH_ROOT"; else mkfs.ext4 -O ^orphan_file,^metadata_csum_seed -F "$ARCH_ROOT"; fi
                 mount "$ARCH_ROOT" "$TARGET"
                 EFI_DIR="/boot"
             fi
@@ -309,7 +309,7 @@ while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
             wipefs -a "$ARCH_ROOT" &>/dev/null || true
             
             echo "[INFO] Formatting $ARCH_ROOT to $FILESYSTEM..."
-            if [ "$FILESYSTEM" = "btrfs" ]; then mkfs.btrfs -f "$ARCH_ROOT"; else mkfs.ext4 -F "$ARCH_ROOT"; fi
+            if [ "$FILESYSTEM" = "btrfs" ]; then mkfs.btrfs -f "$ARCH_ROOT"; else mkfs.ext4 -O ^orphan_file,^metadata_csum_seed -F "$ARCH_ROOT"; fi
             mount "$ARCH_ROOT" "$TARGET"
             
             if [ -d "/sys/firmware/efi" ]; then
@@ -385,7 +385,7 @@ while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
                             read -r -p "Select Filesystem (ext4/btrfs) [default: ext4]: " ROOT_FS
                             ROOT_FS=${ROOT_FS:-ext4}
                             wipefs -a "$ARCH_ROOT" &>/dev/null || true
-                            if [ "$ROOT_FS" = "btrfs" ]; then mkfs.btrfs -f "$ARCH_ROOT"; else mkfs.ext4 -F "$ARCH_ROOT"; fi
+                            if [ "$ROOT_FS" = "btrfs" ]; then mkfs.btrfs -f "$ARCH_ROOT"; else mkfs.ext4 -O ^orphan_file,^metadata_csum_seed -F "$ARCH_ROOT"; fi
                         fi
                         if mount "$ARCH_ROOT" "$TARGET"; then break; else echo "[ERROR] Mount failed."; fi
                     else echo "[ERROR] Invalid partition path."; fi
@@ -418,7 +418,7 @@ while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
                 if [ -b "$GUI_ROOT_PART" ]; then
                     wipefs -a "$GUI_ROOT_PART" &>/dev/null || true
                     echo "[INFO] Formatting $GUI_ROOT_PART to $FILESYSTEM..."
-                    if [ "$FILESYSTEM" = "btrfs" ]; then mkfs.btrfs -f "$GUI_ROOT_PART"; else mkfs.ext4 -F "$GUI_ROOT_PART"; fi
+                    if [ "$FILESYSTEM" = "btrfs" ]; then mkfs.btrfs -f "$GUI_ROOT_PART"; else mkfs.ext4 -O ^orphan_file,^metadata_csum_seed -F "$GUI_ROOT_PART"; fi
                     mount "$GUI_ROOT_PART" "$TARGET"
                 else
                     echo "[ERROR] Invalid or missing GUI ROOT partition."
@@ -868,9 +868,10 @@ EOF
             # --- LEGACY BIOS LIMINE DEPLOYMENT ---
             update_status "PROGRESS: Executing Limine BIOS configuration..."
             
-            # BULLETPROOF FIX: Explicitly create /boot/limine and copy ALL stage files
-            mkdir -p "$TARGET/boot/limine"
-            cp -r "$TARGET/usr/share/limine/"* "$TARGET/boot/limine/" 2>/dev/null || true
+            # BULLETPROOF FIX: Execute the copy INSIDE the chroot so paths map correctly!
+            arch-chroot "$TARGET" bash -c 'mkdir -p /boot/limine'
+            arch-chroot "$TARGET" bash -c 'cp /usr/share/limine/limine-bios.sys /boot/' || true
+            arch-chroot "$TARGET" bash -c 'cp /usr/share/limine/limine-bios.sys /boot/limine/' || true
             
             arch-chroot "$TARGET" limine bios-install "$TARGET_DRIVE" || true
             
