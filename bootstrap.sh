@@ -66,9 +66,9 @@ if [ "$UI_CHOICE" = "1" ]; then
     # We update the core C-libraries (glibc) so new binaries don't crash, 
     # block the massive kernel/firmware updates to save RAM, and use --overwrite "*"
     # to bulldoze any package split conflicts (like gcc-libs -> libgcc).
-    # 1. THE MINIMAL FULL UPGRADE
     echo "=> Performing minimal core system upgrade..."
     pacman -Syu --overwrite "*" --ignore "linux,linux-firmware*,intel-ucode,amd-ucode,linux-api-headers,mkinitcpio,sof-firmware,open-vm-tools,virtualbox-guest-utils-nox,vim*,zsh,openvpn,openconnect,man-db,man-pages,nmap,tcpdump,python*,perl*,lvm2,mdadm,nftables,iptables,openssh,partclone,sqlite,cloud-init,hyperv,bolt,broadcom-wl,bcachefs-tools,libtorrent-rasterbar,screen,sg3_utils,tpm2-tools,archinstall,clonezilla" --noconfirm || true
+    
     # 2. INSTANT NUCLEAR CACHE FLUSH (Crucial for 2GB VMs)
     echo "=> Reclaiming RAM disk space..."
     rm -rf /var/cache/pacman/pkg/*
@@ -83,7 +83,8 @@ if [ "$UI_CHOICE" = "1" ]; then
     rm -rf /var/cache/pacman/pkg/*
     
     echo "=> Fetching Kestrel GUI Binary..."
-    curl -sfL "https://github.com/${GITHUB_REPO}/releases/latest/download/kestrel-gui" -o /usr/local/bin/kestrel-gui
+    # FIX: Pointed curl to the specific latest-gui tag to prevent 404 errors
+    curl -sfL "https://github.com/${GITHUB_REPO}/releases/download/latest-gui/kestrel-gui" -o /usr/local/bin/kestrel-gui
     sync
     chmod +x /usr/local/bin/kestrel-gui
 
