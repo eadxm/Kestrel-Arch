@@ -9,3 +9,13 @@ slint = "1.7.2"
 
 [build-dependencies]
 slint-build = "1.7.2"
+
+# ==========================================
+# KESTREL EXTREME COMPRESSION MATRIX
+# ==========================================
+[profile.release]
+opt-level = "z"     # Optimize aggressively for binary size
+lto = true          # Enable Link Time Optimization (huge size reduction)
+codegen-units = 1   # Slower compile time, but maximum compression
+panic = "abort"     # Removes panic unwinding infrastructure (saves RAM)
+strip = true        # Strips debug symbols (The biggest space saver!)
