@@ -1,7 +1,7 @@
 slint::include_modules!();
 
 use std::process::{Command, Stdio};
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read}; // Added Read trait
 use std::thread;
 use std::rc::Rc;
 use std::time::{Instant, Duration};
@@ -112,15 +112,12 @@ fn main() -> Result<(), slint::PlatformError> {
     // ==========================================
     // INITIAL SYSTEM CHECKS (Ethernet, Offline, UEFI)
     // ==========================================
-    // Check if the offline installer package cache exists
     let is_offline = std::path::Path::new("/opt/offline_cache").exists();
     ui.set_is_offline_cached(is_offline);
 
-    // DYNAMIC UI FIX 1: Check for UEFI firmware and pass the boolean to Slint
     let is_efi = std::path::Path::new("/sys/firmware/efi").exists();
     ui.set_is_efi_system(is_efi);
 
-    // DYNAMIC UI FIX 2: Change Falkon text based on offline status
     let falkon_text = if is_offline {
         SharedString::from("Falkon (Offline Default)")
     } else {
@@ -128,7 +125,6 @@ fn main() -> Result<(), slint::PlatformError> {
     };
     ui.set_falkon_label(falkon_text);
 
-    // Initial check for hardwired ethernet (If this succeeds, we skip Wi-Fi setup)
     if let Ok(status) = Command::new("ping").arg("-c").arg("1").arg("-W").arg("2").arg("archlinux.org").status() {
         if status.success() {
             ui.set_has_ethernet(true);
@@ -163,7 +159,6 @@ fn main() -> Result<(), slint::PlatformError> {
         disks.push("No drives found!".into());
     }
 
-    // Load initial partitions for the first disk instantly
     if let Some(first_disk) = disks.first() {
         let pure = first_disk.as_str().split_whitespace().next().unwrap_or("");
         let (parts, avail) = scan_partitions(pure);
@@ -310,15 +305,10 @@ fn main() -> Result<(), slint::PlatformError> {
         let ui_handle = ui_handle_gparted.clone();
         let pure_disk_path = disk.as_str().split_whitespace().next().unwrap_or("").to_string();
         
-        // Spawn in a separate thread so it DOES NOT freeze the GUI!
         thread::spawn(move || {
-            // 1. Launch GParted GUI and wait for it to close
             let _ = Command::new("gparted").arg(&pure_disk_path).status();
-
-            // 2. Rescan the new layout mapped by the user
             let (parts, avail) = scan_partitions(&pure_disk_path);
 
-            // 3. Update the GUI dynamically
             slint::invoke_from_event_loop(move || {
                 if let Some(ui) = ui_handle.upgrade() {
                     ui.global::<InstallerLogic>().set_current_partitions(ModelRc::from(Rc::new(VecModel::from(parts))));
@@ -359,7 +349,6 @@ fn main() -> Result<(), slint::PlatformError> {
         let perf_char = if perf.as_str().starts_with('Y') { "Y" } else { "N" };
         let de_num = selected_de.as_str().split('.').next().unwrap_or("1").to_string();
         
-        // DECOUPLED BROWSER PARSING (Immune to UI text changes)
         let browser_str = browser.as_str();
         let mut browser_num = if browser_str.contains("Zen") { "1" }
         else if browser_str.contains("LibreWolf") { "2" }
@@ -367,19 +356,12 @@ fn main() -> Result<(), slint::PlatformError> {
         else if browser_str.contains("Brave") { "4" }
         else { "5" }.to_string();
 
-        // DECOUPLED BOOTLOADER PARSING (Immune to UI text changes)
         let boot_str = selected_boot.as_str();
         let boot_num = if boot_str.contains("Limine") { "4" }
         else if boot_str.contains("rEFInd") { "3" }
         else if boot_str.contains("systemd-boot") { "2" }
         else { "1" }.to_string();
 
-        // ==============================================================
-        // FAILSAFE OVERRIDE: Prevent offline parsing crashes
-        // If the user is offline, forcibly lock the browser index to "5".
-        // This ensures the bash script installs the cached Falkon 
-        // instead of trying to reach the internet for Zen Browser.
-        // ==============================================================
         if mode_num == "2" {
             browser_num = "5".to_string();
         }
@@ -408,57 +390,114 @@ fn main() -> Result<(), slint::PlatformError> {
                 .spawn()
                 .expect("Failed to execute Kestrel bash script");
 
-            let stdout = child.stdout.take().expect("Failed to capture stdout");
-            let reader = BufReader::new(stdout);
+            // ==============================================================
+            // TERMINAL EMULATOR: Raw Byte Parsing for Progress Animations!
+            // ==============================================================
+            let mut stdout = child.stdout.take().expect("Failed to capture stdout");
+            let mut buffer = [0u8; 128]; // Small buffer for ultra-smooth 60fps animations
+            let mut current_line = String::new();
+            let mut in_ansi = false;
 
             let mut current_progress: f32 = 0.0;
-            
-            // 60FPS THROTTLE: Use a vector to manage the scrollback buffer
             let mut log_lines: Vec<String> = vec![
                 "> Initiating Kestrel Arch Deployment Protocol...".to_string(),
                 "> Reading configuration matrix...".to_string(),
             ];
 
             let mut last_ui_update = Instant::now();
-            let update_interval = Duration::from_millis(16); // 16ms = ~60 FPS
+            let update_interval = Duration::from_millis(32); // ~30 FPS
 
-            for line in reader.lines() {
-                if let Ok(output) = line {
-                    // Update progress metrics
-                    if output.contains("Formatting") || output.contains("partition") {
-                        current_progress = 0.25;
-                    } else if output.contains("pacstrap") || output.contains("Installing") {
-                        current_progress = 0.60;
-                    } else if output.contains("bootloader") || output.contains("grub") || output.contains("limine") {
-                        current_progress = 0.85;
-                    }
-
-                    // Append the new line
-                    log_lines.push(format!("> {}", output));
-
-                    // AGGRESSIVE CAP: Keep scrollback to the last 100 lines for ultra-fast layout rendering
-                    if log_lines.len() > 100 {
-                        log_lines.remove(0);
-                    }
-
-                    // THROTTLE: Fire updates exactly at 60Hz
-                    if last_ui_update.elapsed() >= update_interval {
-                        let status_text = output.clone();
-                        let log_update = log_lines.join("\n");
+            loop {
+                match stdout.read(&mut buffer) {
+                    Ok(0) => break, // EOF
+                    Ok(n) => {
+                        let chunk = String::from_utf8_lossy(&buffer[..n]);
                         
-                        slint::invoke_from_event_loop({
-                            let ui_handle = ui_handle.clone();
-                            move || {
-                                if let Some(ui) = ui_handle.upgrade() {
-                                    ui.global::<InstallerLogic>().set_status_text(status_text.into());
-                                    ui.global::<InstallerLogic>().set_progress(current_progress);
-                                    ui.global::<InstallerLogic>().set_console_log(log_update.into());
+                        for c in chunk.chars() {
+                            // 1. Intercept and Destroy ANSI escape spam
+                            if in_ansi {
+                                if c.is_ascii_alphabetic() {
+                                    in_ansi = false; 
+                                }
+                                continue;
+                            }
+
+                            // 2. Parse raw terminal control bytes
+                            match c {
+                                '\n' => {
+                                    let output = current_line.trim();
+                                    
+                                    // Update Slint progress bar dynamically
+                                    if output.contains("Formatting") || output.contains("partition") {
+                                        current_progress = 0.25;
+                                    } else if output.contains("pacstrap") || output.contains("Installing") {
+                                        current_progress = 0.60;
+                                    } else if output.contains("bootloader") || output.contains("grub") || output.contains("limine") {
+                                        current_progress = 0.85;
+                                    }
+
+                                    if !output.is_empty() {
+                                        log_lines.push(format!("> {}", output));
+                                    }
+                                    current_line.clear();
+                                }
+                                '\r' => {
+                                    // CARRIAGE RETURN: Wipe the line to animate progress bars!
+                                    current_line.clear();
+                                }
+                                '\x08' => {
+                                    // BACKSPACE: Erase the last character!
+                                    current_line.pop();
+                                }
+                                '\x1B' => {
+                                    in_ansi = true; // Enter ANSI purge mode
+                                }
+                                _ => {
+                                    if !c.is_control() {
+                                        current_line.push(c);
+                                    }
                                 }
                             }
-                        }).unwrap();
+                        }
 
-                        last_ui_update = Instant::now();
+                        // 3. UI Update Throttle
+                        if last_ui_update.elapsed() >= update_interval {
+                            let mut display_log = log_lines.clone();
+                            let active_line = current_line.trim();
+                            
+                            if !active_line.is_empty() {
+                                display_log.push(format!("> {}", active_line));
+                            }
+
+                            if display_log.len() > 100 {
+                                let excess = display_log.len() - 100;
+                                display_log.drain(0..excess);
+                            }
+
+                            let log_update = display_log.join("\n");
+                            
+                            // Prevent status text from flickering empty
+                            let status_text = if !active_line.is_empty() {
+                                active_line.to_string()
+                            } else {
+                                log_lines.last().unwrap_or(&String::new()).replace("> ", "")
+                            };
+
+                            slint::invoke_from_event_loop({
+                                let ui_handle = ui_handle.clone();
+                                move || {
+                                    if let Some(ui) = ui_handle.upgrade() {
+                                        ui.global::<InstallerLogic>().set_status_text(status_text.into());
+                                        ui.global::<InstallerLogic>().set_progress(current_progress);
+                                        ui.global::<InstallerLogic>().set_console_log(log_update.into());
+                                    }
+                                }
+                            }).unwrap();
+
+                            last_ui_update = Instant::now();
+                        }
                     }
+                    Err(_) => break,
                 }
             }
             
@@ -468,7 +507,6 @@ fn main() -> Result<(), slint::PlatformError> {
                 log_lines.push("\n[!] CRITICAL FAULT: Deployment process exited with a non-zero status code. Read logs above for details.".to_string());
             }
             
-            // Final sync after the process exits
             let final_log = log_lines.join("\n");
 
             slint::invoke_from_event_loop({
@@ -481,8 +519,6 @@ fn main() -> Result<(), slint::PlatformError> {
                         } else {
                             ui.global::<InstallerLogic>().set_status_text("Installation failed! Check console output.".into());
                             ui.global::<InstallerLogic>().set_console_log(final_log.into());
-                            
-                            // TELL SLINT TO RENDER THE "CLOSE INSTALLER" BUTTON
                             ui.global::<InstallerLogic>().set_install_failed(true);
                         }
                     }
