@@ -867,7 +867,11 @@ EOF
         else
             # --- LEGACY BIOS LIMINE DEPLOYMENT ---
             update_status "PROGRESS: Executing Limine BIOS configuration..."
-            cp "$TARGET/usr/share/limine/limine-bios.sys" "$TARGET/boot/" 2>/dev/null || true
+            
+            # BULLETPROOF FIX: Explicitly create /boot/limine and copy ALL stage files
+            mkdir -p "$TARGET/boot/limine"
+            cp -r "$TARGET/usr/share/limine/"* "$TARGET/boot/limine/" 2>/dev/null || true
+            
             arch-chroot "$TARGET" limine bios-install "$TARGET_DRIVE" || true
             
             # Simple BIOS chainload for Windows if MBR is detected
