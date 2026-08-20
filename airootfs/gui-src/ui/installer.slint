@@ -166,6 +166,13 @@ export component InstallerWindow inherits Window {
     
     default-font-family: "Geomini, Segoe UI, Roboto, sans-serif";
 
+    // ========================================================
+    // RUST HARDWARE INTEGRATION PROPERTIES
+    // ========================================================
+    in property <bool> is_efi_system: true; 
+    in property <string> falkon_label: "5. Falkon (Recommended)";
+    // ========================================================
+
     in-out property <int> active_step: 0;
     
     in-out property <string> error_message: "";
@@ -200,7 +207,7 @@ export component InstallerWindow inherits Window {
     property <string> selected_browser: "1. Zen Browser";
     property <bool> perf_enabled: true;
     property <string> selected_de: "Choose your environment";
-    property <string> selected_boot: "1. GRUB (BIOS & UEFI)";
+    property <string> selected_boot: "GRUB";
 
     property <bool> show_console: false;
 
@@ -264,9 +271,8 @@ export component InstallerWindow inherits Window {
                             current-value: root.selected_mode; 
                             selected(val) => { 
                                 root.selected_mode = val; 
-                                // FIX: Dynamically wire the UI to force Falkon when Offline is clicked
                                 if (val == "2. Offline (Fast, Local Cache)") {
-                                    root.selected_browser = "5. Falkon (Recommended)";
+                                    root.selected_browser = root.falkon_label;
                                 }
                             } 
                             height: 38px; 
@@ -660,13 +666,12 @@ export component InstallerWindow inherits Window {
                             VerticalBox {
                                 padding: 8px; spacing: 6px;
                                 
-                                // FIX: Hidden Zen Browser in offline mode just like the rest!
                                 if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "1. Zen Browser"; description: "Highly optimized Firefox fork focused on privacy and speed."; active: root.selected_browser == "1. Zen Browser"; clicked => { root.selected_browser = "1. Zen Browser"; } }
                                 if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "2. LibreWolf"; description: "Customized version of Firefox prioritizing security and privacy."; active: root.selected_browser == "2. LibreWolf"; clicked => { root.selected_browser = "2. LibreWolf"; } }
                                 if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "3. Firefox"; description: "The standard open-source web browser engine."; active: root.selected_browser == "3. Firefox"; clicked => { root.selected_browser = "3. Firefox"; } }
                                 if (root.selected_mode != "2. Offline (Fast, Local Cache)") : RadioOption { title: "4. Brave"; description: "Chromium-based browser with built-in tracker blocking."; active: root.selected_browser == "4. Brave"; clicked => { root.selected_browser = "4. Brave"; } }
                                 
-                                RadioOption { title: "5. Falkon (Recommended)"; description: "Lightweight, lightning-fast Qt-based browser integrating seamlessly with KDE."; active: root.selected_browser == "5. Falkon (Recommended)"; clicked => { root.selected_browser = "5. Falkon (Recommended)"; } }
+                                RadioOption { title: root.falkon_label; description: "Lightweight, lightning-fast Qt-based browser integrating seamlessly with KDE."; active: root.selected_browser == root.falkon_label || root.selected_browser == "5. Falkon (Recommended)"; clicked => { root.selected_browser = root.falkon_label; } }
                             }
                         }
                     }
@@ -744,10 +749,10 @@ export component InstallerWindow inherits Window {
                             VerticalBox {
                                 padding: 8px; spacing: 6px;
                                 
-                                RadioOption { title: "1. GRUB (BIOS & UEFI)"; description: "Universal multi-boot loader; fully supports legacy BIOS and modern UEFI."; active: root.selected_boot == "1. GRUB (BIOS & UEFI)"; clicked => { root.selected_boot = "1. GRUB (BIOS & UEFI)"; } }
-                                RadioOption { title: "2. systemd-boot (UEFI Only)"; description: "Light minimalist EFI manager tracking kernel slots (No BIOS support)."; active: root.selected_boot == "2. systemd-boot (UEFI Only)"; clicked => { root.selected_boot = "2. systemd-boot (UEFI Only)"; } }
-                                RadioOption { title: "3. rEFInd (UEFI Only)"; description: "Rich graphical shell auto-detecting boot options (No BIOS support)."; active: root.selected_boot == "3. rEFInd (UEFI Only)"; clicked => { root.selected_boot = "3. rEFInd (UEFI Only)"; } }
-                                RadioOption { title: "4. Limine (BIOS & UEFI)"; description: "Modern lightning-fast universal system deployed cleanly via limine.conf."; active: root.selected_boot == "4. Limine (BIOS & UEFI)"; clicked => { root.selected_boot = "4. Limine (BIOS & UEFI)"; } }
+                                RadioOption { title: "GRUB (Universal)"; description: "Universal multi-boot loader; fully supports legacy BIOS and modern UEFI."; active: root.selected_boot == "GRUB"; clicked => { root.selected_boot = "GRUB"; } }
+                                if (root.is_efi_system) : RadioOption { title: "systemd-boot (UEFI Only)"; description: "Light minimalist EFI manager tracking kernel slots (No BIOS support)."; active: root.selected_boot == "systemd-boot"; clicked => { root.selected_boot = "systemd-boot"; } }
+                                if (root.is_efi_system) : RadioOption { title: "rEFInd (UEFI Only)"; description: "Rich graphical shell auto-detecting boot options (No BIOS support)."; active: root.selected_boot == "rEFInd"; clicked => { root.selected_boot = "rEFInd"; } }
+                                RadioOption { title: "Limine (Universal)"; description: "Modern lightning-fast universal system deployed cleanly via limine.conf."; active: root.selected_boot == "Limine"; clicked => { root.selected_boot = "Limine"; } }
                             }
                         }
                     }
