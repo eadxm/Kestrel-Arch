@@ -355,7 +355,13 @@ fn main() -> Result<(), slint::PlatformError> {
         let mut browser_num = browser.as_str().split('.').next().unwrap_or("1").to_string();
         let perf_char = if perf.as_str().starts_with('Y') { "Y" } else { "N" };
         let de_num = selected_de.as_str().split('.').next().unwrap_or("1").to_string();
-        let boot_num = selected_boot.as_str().split('.').next().unwrap_or("1").to_string();
+        
+        // DECOUPLED BOOTLOADER PARSING (Immune to UI text changes)
+        let boot_str = selected_boot.as_str();
+        let boot_num = if boot_str.contains("Limine") { "4" }
+        else if boot_str.contains("rEFInd") { "3" }
+        else if boot_str.contains("systemd-boot") { "2" }
+        else { "1" }.to_string();
 
         // ==============================================================
         // FAILSAFE OVERRIDE: Prevent offline parsing crashes
