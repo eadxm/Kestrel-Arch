@@ -110,11 +110,23 @@ fn main() -> Result<(), slint::PlatformError> {
     let ui = InstallerWindow::new()?;
     
     // ==========================================
-    // INITIAL SYSTEM CHECKS (Ethernet & Offline Cache)
+    // INITIAL SYSTEM CHECKS (Ethernet, Offline, UEFI)
     // ==========================================
     // Check if the offline installer package cache exists
     let is_offline = std::path::Path::new("/opt/offline_cache").exists();
     ui.set_is_offline_cached(is_offline);
+
+    // DYNAMIC UI FIX 1: Check for UEFI firmware and pass the boolean to Slint
+    let is_efi = std::path::Path::new("/sys/firmware/efi").exists();
+    ui.set_is_efi_system(is_efi);
+
+    // DYNAMIC UI FIX 2: Change Falkon text based on offline status
+    let falkon_text = if is_offline {
+        SharedString::from("1. Falkon (Offline Default)")
+    } else {
+        SharedString::from("5. Falkon (Recommended for KDE/Arch)")
+    };
+    ui.set_falkon_label(falkon_text);
 
     // Initial check for hardwired ethernet (If this succeeds, we skip Wi-Fi setup)
     if let Ok(status) = Command::new("ping").arg("-c").arg("1").arg("-W").arg("2").arg("archlinux.org").status() {
@@ -340,13 +352,22 @@ fn main() -> Result<(), slint::PlatformError> {
         let pass_str = password.as_str().to_string();
         let root_pass_str = root_password.as_str().to_string();
         
-        let browser_num = browser.as_str().split('.').next().unwrap_or("1").to_string();
+        let mut browser_num = browser.as_str().split('.').next().unwrap_or("1").to_string();
         let perf_char = if perf.as_str().starts_with('Y') { "Y" } else { "N" };
         let de_num = selected_de.as_str().split('.').next().unwrap_or("1").to_string();
         let boot_num = selected_boot.as_str().split('.').next().unwrap_or("1").to_string();
+
+        // ==============================================================
+        // FAILSAFE OVERRIDE: Prevent offline parsing crashes
+        // If the user is offline, forcibly lock the browser index to "5".
+        // This ensures the bash script installs the cached Falkon 
+        // instead of trying to reach the internet for Zen Browser.
+        // ==============================================================
+        if mode_num == "2" {
+            browser_num = "5".to_string();
+        }
         
         thread::spawn(move || {
-            // FIX: Using bash -c with 2>&1 pipes STDERR directly into STDOUT.
             let mut child = Command::new("bash")
                 .arg("-c")
                 .arg("/usr/local/bin/install.sh 2>&1")
