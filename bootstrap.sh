@@ -81,8 +81,13 @@ if [ "$UI_CHOICE" = "1" ]; then
     rm -rf /var/lib/pacman/sync/*
     
     echo "=> Fetching Kestrel GUI Binary..."
-    # Removed -s flag to show download progress bar, added --retry for connection drops
-    curl -fL -# --retry 3 "https://github.com/${GITHUB_REPO}/releases/download/latest-gui/kestrel-gui" -o /usr/local/bin/kestrel-gui
+    # FIX: Destroy any locked/ghost binaries from previous cancelled runs!
+    rm -f /usr/local/bin/kestrel-gui
+    
+    # -C -               : Automatically resume broken downloads exactly where they stopped
+    # --retry 5          : Try 5 times instead of 3
+    # --retry-all-errors : Force retry on connection resets and timeouts
+    curl -fL -# --retry 5 --retry-all-errors --retry-delay 3 -C - "https://github.com/${GITHUB_REPO}/releases/download/latest-gui/kestrel-gui" -o /usr/local/bin/kestrel-gui
     sync
     chmod +x /usr/local/bin/kestrel-gui
 
