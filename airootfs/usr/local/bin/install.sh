@@ -617,17 +617,27 @@ if [ "$INSTALL_MODE" = "1" ]; then
     pacman -Sy --noconfirm >/dev/null 2>&1 || true
 fi
 
-update_status "PROGRESS: Verifying package integrity against Arch mirrors..."
+if [ "$INSTALL_MODE" = "1" ]; then
+    update_status "PROGRESS: Verifying package integrity against Arch mirrors..."
+else
+    update_status "PROGRESS: Verifying offline cache integrity..."
+fi
 
 VALIDATED_PACKAGES=()
 for pkg in $CORE_PKGS; do
     if [ "$INSTALL_MODE" = "2" ]; then
-        VALIDATED_PACKAGES+=("$pkg")
+        # Check if the package actually physically exists in the cache folder
+        if ls "$ISO_CACHE"/${pkg}-*.pkg.tar.zst >/dev/null 2>&1 || ls "$ISO_CACHE"/${pkg}-*.pkg.tar.xz >/dev/null 2>&1; then
+            VALIDATED_PACKAGES+=("$pkg")
+        else
+            echo "[WARNING] Offline cache missing '$pkg'. Skipping optional package."
+        fi
     else
+        # Online mirror check
         if pacman -Si "$pkg" &> /dev/null || pacman -Sg "$pkg" &> /dev/null; then
             VALIDATED_PACKAGES+=("$pkg")
         else
-            echo "[WARNING] Package '$pkg' is missing or renamed. Skipping optional package."
+            echo "[WARNING] Package '$pkg' is missing or renamed. Skipping."
         fi
     fi
 done
