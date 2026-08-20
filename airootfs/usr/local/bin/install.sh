@@ -120,7 +120,16 @@ else
     INITRAMFS="initramfs-linux.img"
 fi
 
-CORE_PKGS="base $KERNEL_PKG linux-firmware scx-scheds efibootmgr os-prober ntfs-3g networkmanager iwd bluez bluez-utils blueman pipewire pipewire-pulse wireplumber brightnessctl flatpak xorg-server sudo zram-generator earlyoom reflector ttf-dejavu ttf-liberation noto-fonts noto-fonts-emoji curl chaotic-keyring chaotic-mirrorlist parted foot git stow qt5-wayland qt6-wayland"
+CORE_PKGS="base $KERNEL_PKG linux-firmware scx-scheds efibootmgr os-prober ntfs-3g networkmanager iwd bluez bluez-utils blueman pipewire pipewire-pulse wireplumber brightnessctl flatpak xorg-server sudo zram-generator earlyoom reflector ttf-dejavu ttf-liberation noto-fonts noto-fonts-emoji curl chaotic-keyring chaotic-mirrorlist parted foot git stow qt5-wayland qt6-wayland tesseract-data-eng"
+
+# =====================================================================
+# DYNAMIC VIRTUAL MACHINE DETECTOR
+# =====================================================================
+if systemd-detect-virt -q; then
+    echo "[INFO] Virtual Machine detected. Injecting VM guest utilities for Wayland support..."
+    update_status "PROGRESS: Virtual Machine detected. Adding guest tools..."
+    CORE_PKGS="$CORE_PKGS virtualbox-guest-utils xf86-video-vmware xf86-video-qxl qemu-guest-agent"
+fi
 
 if [ -z "$INSTALL_MODE" ]; then
     update_status "PROGRESS: Determining installation mode..."
