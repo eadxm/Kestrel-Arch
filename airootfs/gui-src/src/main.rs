@@ -122,9 +122,9 @@ fn main() -> Result<(), slint::PlatformError> {
 
     // DYNAMIC UI FIX 2: Change Falkon text based on offline status
     let falkon_text = if is_offline {
-        SharedString::from("1. Falkon (Offline Default)")
+        SharedString::from("Falkon (Offline Default)")
     } else {
-        SharedString::from("5. Falkon (Recommended for KDE/Arch)")
+        SharedString::from("Falkon (Recommended for KDE/Arch)")
     };
     ui.set_falkon_label(falkon_text);
 
@@ -356,10 +356,17 @@ fn main() -> Result<(), slint::PlatformError> {
         let pass_str = password.as_str().to_string();
         let root_pass_str = root_password.as_str().to_string();
         
-        let mut browser_num = browser.as_str().split('.').next().unwrap_or("1").to_string();
         let perf_char = if perf.as_str().starts_with('Y') { "Y" } else { "N" };
         let de_num = selected_de.as_str().split('.').next().unwrap_or("1").to_string();
         
+        // DECOUPLED BROWSER PARSING (Immune to UI text changes)
+        let browser_str = browser.as_str();
+        let mut browser_num = if browser_str.contains("Zen") { "1" }
+        else if browser_str.contains("LibreWolf") { "2" }
+        else if browser_str.contains("Firefox") { "3" }
+        else if browser_str.contains("Brave") { "4" }
+        else { "5" }.to_string();
+
         // DECOUPLED BOOTLOADER PARSING (Immune to UI text changes)
         let boot_str = selected_boot.as_str();
         let boot_num = if boot_str.contains("Limine") { "4" }
