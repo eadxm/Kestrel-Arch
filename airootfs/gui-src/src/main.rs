@@ -288,7 +288,7 @@ fn main() -> Result<(), slint::PlatformError> {
     });
 
     // ==========================================
-    // SYSTEM LOGIC: Power Management
+    // SYSTEM LOGIC: Power Management & Failsafes
     // ==========================================
     ui.global::<InstallerLogic>().on_reboot_system(move || {
         let _ = Command::new("systemctl").arg("reboot").spawn();
@@ -296,6 +296,10 @@ fn main() -> Result<(), slint::PlatformError> {
 
     ui.global::<InstallerLogic>().on_poweroff_system(move || {
         let _ = Command::new("systemctl").arg("poweroff").spawn();
+    });
+
+    ui.global::<InstallerLogic>().on_close_installer(move || {
+        std::process::exit(1);
     });
 
     // ==========================================
@@ -470,6 +474,9 @@ fn main() -> Result<(), slint::PlatformError> {
                         } else {
                             ui.global::<InstallerLogic>().set_status_text("Installation failed! Check console output.".into());
                             ui.global::<InstallerLogic>().set_console_log(final_log.into());
+                            
+                            // TELL SLINT TO RENDER THE "CLOSE INSTALLER" BUTTON
+                            ui.global::<InstallerLogic>().set_install_failed(true);
                         }
                     }
                 }
