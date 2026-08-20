@@ -45,27 +45,24 @@ while true; do
     if [[ "$UI_CHOICE" =~ ^[1-2]$ ]]; then break; else echo "[WARNING] Invalid choice."; fi
 done
 
-# Fetch Kestrel Backend Engine
+# Fetch Kestrel Backend Engine (Removed -s to show progress)
 echo "=> Fetching Kestrel Backend Engine..."
 mkdir -p /usr/local/bin
-curl -sfL "https://raw.githubusercontent.com/${GITHUB_REPO}/refs/heads/main/airootfs/usr/local/bin/install.sh" -o /usr/local/bin/install.sh
+curl -fL -# "https://raw.githubusercontent.com/${GITHUB_REPO}/refs/heads/main/airootfs/usr/local/bin/install.sh" -o /usr/local/bin/install.sh
 sync
 chmod +x /usr/local/bin/install.sh
 
 if [ "$UI_CHOICE" = "1" ]; then
     echo "=> Initializing Graphical Environment in Live RAM..."
     
-    # 2GB RAM SURVIVAL TACTIC: Push tmpfs to 90% of total RAM to fit everything
+    # 2GB RAM SURVIVAL TACTIC: Push tmpfs to 4GB ceiling (relies on ZRAM to fit)
     echo "=> Maximizing RAM-disk capacity..."
-    mount -o remount,size=90% /run/archiso/cowspace || true
+    mount -o remount,size=4G /run/archiso/cowspace 2>/dev/null || true
     
     pacman-key --init >/dev/null 2>&1 || true
     pacman-key --populate archlinux >/dev/null 2>&1 || true
 
     # 1. THE MINIMAL FULL UPGRADE
-    # We update the core C-libraries (glibc) so new binaries don't crash, 
-    # block the massive kernel/firmware updates to save RAM, and use --overwrite "*"
-    # to bulldoze any package split conflicts (like gcc-libs -> libgcc).
     echo "=> Performing minimal core system upgrade..."
     pacman -Syu --overwrite "*" --ignore "linux,linux-firmware*,intel-ucode,amd-ucode,linux-api-headers,mkinitcpio,sof-firmware,open-vm-tools,virtualbox-guest-utils-nox,vim*,zsh,openvpn,openconnect,man-db,man-pages,nmap,tcpdump,python*,perl*,lvm2,mdadm,nftables,iptables,openssh,partclone,sqlite,cloud-init,hyperv,bolt,broadcom-wl,bcachefs-tools,libtorrent-rasterbar,screen,sg3_utils,tpm2-tools,archinstall,clonezilla" --noconfirm || true
     
@@ -74,17 +71,18 @@ if [ "$UI_CHOICE" = "1" ]; then
     rm -rf /var/cache/pacman/pkg/*
     
     # 3. Install core GUI dependencies.
-    # --overwrite "*" is kept here as a final fail-safe for any lingering file conflicts.
+    # SWAPPED noto-fonts for ttf-liberation to save >100MB of RAM!
     echo "=> Installing Wayland, Cage, and UI Dependencies..."
-    pacman -S --noconfirm --needed --overwrite "*" cage wayland gparted polkit noto-fonts pciutils
+    pacman -S --noconfirm --needed --overwrite "*" cage wayland gparted polkit ttf-liberation pciutils
     
     # 4. Final nuclear flush before fetching the GUI
-    echo "=> Clearing final package cache..."
+    echo "=> Clearing final package cache & sync databases..."
     rm -rf /var/cache/pacman/pkg/*
+    rm -rf /var/lib/pacman/sync/*
     
     echo "=> Fetching Kestrel GUI Binary..."
-    # FIX: Pointed curl to the specific latest-gui tag to prevent 404 errors
-    curl -sfL "https://github.com/${GITHUB_REPO}/releases/download/latest-gui/kestrel-gui" -o /usr/local/bin/kestrel-gui
+    # Removed -s flag to show download progress bar, added --retry for connection drops
+    curl -fL -# --retry 3 "https://github.com/${GITHUB_REPO}/releases/download/latest-gui/kestrel-gui" -o /usr/local/bin/kestrel-gui
     sync
     chmod +x /usr/local/bin/kestrel-gui
 
