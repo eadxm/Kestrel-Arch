@@ -101,7 +101,7 @@ echo ""
 TARGET="/mnt"
 ISO_CACHE="/opt/offline_cache"
 GRUB_OS_PROBER="true" 
-EFI_DIR="/boot" # <--- FIX: Global EFI Mount Point changed to /boot
+EFI_DIR="/boot"
 DISPLAY_MANAGER="sddm"
 
 # =====================================================================
@@ -251,9 +251,10 @@ while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
             
             if [ -d "/sys/firmware/efi" ]; then
                 parted -s "$TARGET_DRIVE" mklabel gpt
-                parted -s -a optimal "$TARGET_DRIVE" mkpart primary fat32 1MiB 1025MiB
+                # SHRINK: 512MB UEFI Boot Partition
+                parted -s -a optimal "$TARGET_DRIVE" mkpart primary fat32 1MiB 513MiB
                 parted -s "$TARGET_DRIVE" set 1 esp on
-                parted -s -a optimal "$TARGET_DRIVE" mkpart primary "$FILESYSTEM" 1025MiB 100%
+                parted -s -a optimal "$TARGET_DRIVE" mkpart primary "$FILESYSTEM" 513MiB 100%
                 
                 partprobe "$TARGET_DRIVE"; udevadm settle; sleep 2
                 ARCH_EFI="${TARGET_DRIVE}${PART_PREFIX}1"
@@ -271,18 +272,29 @@ while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
                 mkdir -p "$TARGET$EFI_DIR"
                 mount -t vfat "$ARCH_EFI" "$TARGET$EFI_DIR"
             else
+                echo "[INFO] Legacy BIOS Detected. Building dedicated Boot & Root partitions..."
                 parted -s "$TARGET_DRIVE" mklabel msdos
-                parted -s -a optimal "$TARGET_DRIVE" mkpart primary "$FILESYSTEM" 2MiB 100%
+                # SHRINK: 512MB Legacy BIOS Boot Partition
+                parted -s -a optimal "$TARGET_DRIVE" mkpart primary ext4 2MiB 514MiB
                 parted -s "$TARGET_DRIVE" set 1 boot on
+                parted -s -a optimal "$TARGET_DRIVE" mkpart primary "$FILESYSTEM" 514MiB 100%
                 
                 partprobe "$TARGET_DRIVE"; udevadm settle; sleep 2
-                ARCH_ROOT="${TARGET_DRIVE}${PART_PREFIX}1"
+                ARCH_BOOT="${TARGET_DRIVE}${PART_PREFIX}1"
+                ARCH_ROOT="${TARGET_DRIVE}${PART_PREFIX}2"
                 
+                wipefs -a "$ARCH_BOOT" &>/dev/null || true
                 wipefs -a "$ARCH_ROOT" &>/dev/null || true
+                
+                echo "[INFO] Formatting $ARCH_BOOT to ext4 (Legacy Compatible)..."
+                mkfs.ext4 -O ^orphan_file,^metadata_csum_seed,^64bit -F "$ARCH_BOOT"
                 
                 echo "[INFO] Formatting $ARCH_ROOT to $FILESYSTEM..."
                 if [ "$FILESYSTEM" = "btrfs" ]; then mkfs.btrfs -f "$ARCH_ROOT"; else mkfs.ext4 -O ^orphan_file,^metadata_csum_seed -F "$ARCH_ROOT"; fi
+                
                 mount "$ARCH_ROOT" "$TARGET"
+                mkdir -p "$TARGET/boot"
+                mount "$ARCH_BOOT" "$TARGET/boot"
                 EFI_DIR="/boot"
             fi
             GRUB_OS_PROBER="true"
@@ -635,14 +647,12 @@ fi
 VALIDATED_PACKAGES=()
 for pkg in $CORE_PKGS; do
     if [ "$INSTALL_MODE" = "2" ]; then
-        # Check if the package actually physically exists in the cache folder
         if ls "$ISO_CACHE"/${pkg}-*.pkg.tar.zst >/dev/null 2>&1 || ls "$ISO_CACHE"/${pkg}-*.pkg.tar.xz >/dev/null 2>&1; then
             VALIDATED_PACKAGES+=("$pkg")
         else
             echo "[WARNING] Offline cache missing '$pkg'. Skipping optional package."
         fi
     else
-        # Online mirror check
         if pacman -Si "$pkg" &> /dev/null || pacman -Sg "$pkg" &> /dev/null; then
             VALIDATED_PACKAGES+=("$pkg")
         else
@@ -706,7 +716,6 @@ genfstab -U "$TARGET" >> "$TARGET/etc/fstab"
 # =====================================================================
 update_status "PROGRESS: Configuring Base System and Chroot..."
 
-# FIX: Check if user exists before attempting to create them
 if ! arch-chroot "$TARGET" id "$username" &>/dev/null; then
     arch-chroot "$TARGET" useradd -m -G wheel -s /bin/bash "$username"
 else
@@ -739,11 +748,9 @@ if [ "$INSTALL_MODE" = "1" ]; then
     echo -e "[device]\nwifi.backend=iwd" > "$TARGET/etc/NetworkManager/conf.d/wifi_backend.conf"
 fi
 
-# Safely enable critical services
 arch-chroot "$TARGET" systemctl enable ${DISPLAY_MANAGER}.service || true
 arch-chroot "$TARGET" systemctl enable NetworkManager.service iwd.service bluetooth.service systemd-timesyncd.service || true
 
-# Safely enable optional hardware services ONLY if they exist
 if [ -f "$TARGET/usr/lib/systemd/system/scx.service" ]; then
     arch-chroot "$TARGET" systemctl enable scx.service || true
 fi
@@ -814,10 +821,7 @@ case $BOOT_CHOICE in
     2)
         # systemd-boot (UEFI Only)
         arch-chroot "$TARGET" bootctl install
-        
-        # BULLETPROOF FIX: Explicitly ensure the entries directory is created
         mkdir -p "$TARGET/boot/loader/entries"
-        
         echo -e "default arch.conf\ntimeout 5" > "$TARGET/boot/loader/loader.conf"
         
         {
@@ -860,18 +864,12 @@ EOF
                 update_status "PROGRESS: Scanning EFI for other Operating Systems..."
                 echo "[INFO] Searching for existing UEFI bootloaders..."
                 
-                # Dynamically scans the EFI partition for OTHER bootloaders (Windows, Ubuntu, Fedora, etc)
                 for efi_file in $(find "$TARGET$EFI_DIR/EFI" -iname "*.efi" -type f 2>/dev/null || true); do
-                    # Strip the mount path so we just get /EFI/...
                     rel_path=$(echo "$efi_file" | sed "s|$TARGET$EFI_DIR||")
-                    
-                    # Ignore Limine's own bootloader, systemd fallbacks, and standard bootx64.efi
                     if echo "$rel_path" | grep -iqE "bootx64.efi|systemd-boot|limine"; then continue; fi
-                    
-                    # Extract the OS name from the folder (e.g. /EFI/ubuntu/grubx64.efi -> ubuntu)
                     os_name=$(echo "$rel_path" | awk -F'/' '{print $3}')
                     
-                    echo "[INFO] Found potential OS at: $rel_path. Adding to Limine."
+                    echo "[INFO] Found OS at: $rel_path. Adding to Limine."
                     echo -e "\n:$os_name (Chainload)\n    protocol: efi\n    path: boot():$rel_path" >> "$TARGET/boot/limine.conf"
                 done
             fi
@@ -879,14 +877,20 @@ EOF
             # --- LEGACY BIOS LIMINE DEPLOYMENT ---
             update_status "PROGRESS: Executing Limine BIOS configuration..."
             
-            # BULLETPROOF FIX: Execute the copy INSIDE the chroot so paths map correctly!
-            arch-chroot "$TARGET" bash -c 'mkdir -p /boot/limine'
-            arch-chroot "$TARGET" bash -c 'cp /usr/share/limine/limine-bios.sys /boot/' || true
-            arch-chroot "$TARGET" bash -c 'cp /usr/share/limine/limine-bios.sys /boot/limine/' || true
+            # BULLETPROOF FIX: Use standard native bash file checks (Avoids chroot environment parsing failures)
+            mkdir -p "$TARGET/boot/limine"
+            if [ -f "$TARGET/usr/share/limine/limine-bios.sys" ]; then
+                cp "$TARGET/usr/share/limine/limine-bios.sys" "$TARGET/boot/"
+                cp "$TARGET/usr/share/limine/limine-bios.sys" "$TARGET/boot/limine/"
+            elif [ -f "$TARGET/usr/share/limine/limine.sys" ]; then
+                cp "$TARGET/usr/share/limine/limine.sys" "$TARGET/boot/"
+                cp "$TARGET/usr/share/limine/limine.sys" "$TARGET/boot/limine/"
+            else
+                echo "[WARNING] Limine BIOS system file not found! Bootloader may fail."
+            fi
             
             arch-chroot "$TARGET" limine bios-install "$TARGET_DRIVE" || true
             
-            # Simple BIOS chainload for Windows if MBR is detected
             if [ "$GRUB_OS_PROBER" = "true" ]; then
                 if arch-chroot "$TARGET" fdisk -l "$TARGET_DRIVE" | grep -q "HPFS/NTFS"; then
                     echo "[INFO] NTFS Partition detected on BIOS system. Adding chainload entry..."
