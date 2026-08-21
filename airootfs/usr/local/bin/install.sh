@@ -273,7 +273,6 @@ while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
             else
                 echo "[INFO] Legacy BIOS Detected. Building dedicated Boot & Root partitions..."
                 parted -s "$TARGET_DRIVE" mklabel msdos
-                # FIX: Must be declared as fat32 for Limine compatibility
                 parted -s -a optimal "$TARGET_DRIVE" mkpart primary fat32 2MiB 514MiB
                 parted -s "$TARGET_DRIVE" set 1 boot on
                 parted -s -a optimal "$TARGET_DRIVE" mkpart primary "$FILESYSTEM" 514MiB 100%
@@ -285,7 +284,6 @@ while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
                 wipefs -a "$ARCH_BOOT" &>/dev/null || true
                 wipefs -a "$ARCH_ROOT" &>/dev/null || true
                 
-                # FIX: Format as FAT32, the only filesystem Limine strictly supports
                 echo "[INFO] Formatting $ARCH_BOOT to FAT32 (Limine Compatible)..."
                 mkfs.vfat -F 32 "$ARCH_BOOT"
                 
@@ -841,17 +839,21 @@ case $BOOT_CHOICE in
         ;;
     4)
         # LIMINE (Universal UEFI/BIOS with Custom Multi-Boot Prober)
-        UCODE_STR=""
-        [ -n "$UCODE_IMG" ] && UCODE_STR="module_path: boot():/${UCODE_IMG}\n    "
-        
         cat << EOF > "$TARGET/boot/limine.conf"
 timeout: 5
 default_entry: 1
 
-:Kestrel Arch
+/Kestrel Arch
     protocol: linux
     path: boot():/$VMLINUZ
-    ${UCODE_STR}module_path: boot():/$INITRAMFS
+EOF
+
+        if [ -n "$UCODE_IMG" ]; then
+            echo "    module_path: boot():/${UCODE_IMG}" >> "$TARGET/boot/limine.conf"
+        fi
+
+        cat << EOF >> "$TARGET/boot/limine.conf"
+    module_path: boot():/$INITRAMFS
     cmdline: root=UUID=${ROOT_UUID} rw nowatchdog zswap.enabled=0 quiet splash mitigations=off${NVIDIA_CMDLINE}
 EOF
 
@@ -870,7 +872,7 @@ EOF
                     os_name=$(echo "$rel_path" | awk -F'/' '{print $3}')
                     
                     echo "[INFO] Found OS at: $rel_path. Adding to Limine."
-                    echo -e "\n:$os_name (Chainload)\n    protocol: efi\n    path: boot():$rel_path" >> "$TARGET/boot/limine.conf"
+                    echo -e "\n/$os_name (Chainload)\n    protocol: efi\n    path: boot():$rel_path" >> "$TARGET/boot/limine.conf"
                 done
             fi
         else
@@ -894,7 +896,7 @@ EOF
             if [ "$GRUB_OS_PROBER" = "true" ]; then
                 if arch-chroot "$TARGET" fdisk -l "$TARGET_DRIVE" | grep -q "HPFS/NTFS"; then
                     echo "[INFO] NTFS Partition detected on BIOS system. Adding chainload entry..."
-                    echo -e "\n:Windows (BIOS)\n    protocol: chainload\n    drive: 1\n    partition: 1" >> "$TARGET/boot/limine.conf"
+                    echo -e "\n/Windows (BIOS)\n    protocol: chainload\n    drive: 1\n    partition: 1" >> "$TARGET/boot/limine.conf"
                 fi
             fi
         fi
