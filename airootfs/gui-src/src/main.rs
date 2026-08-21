@@ -28,7 +28,6 @@ fn scan_partitions(disk_path: &str) -> (Vec<PartitionData>, Vec<SharedString>) {
         String::from_utf8_lossy(&out.stdout).trim().parse().unwrap_or(1.0)
     } else { 1.0 };
 
-    // FIX 1: Added '-p' to force lsblk to output exact absolute paths!
     let output = Command::new("lsblk")
         .arg("-P").arg("-p").arg("-b").arg("-o").arg("NAME,FSTYPE,LABEL,MOUNTPOINT,SIZE")
         .arg(disk_path)
@@ -57,7 +56,7 @@ fn scan_partitions(disk_path: &str) -> (Vec<PartitionData>, Vec<SharedString>) {
                 String::new()
             };
 
-            let name = get_val("NAME"); // This is now exactly "/dev/sda1"
+            let name = get_val("NAME"); 
             
             if !name.is_empty() && name != disk_path {
                 let fs = get_val("FSTYPE");
@@ -364,7 +363,6 @@ fn main() -> Result<(), slint::PlatformError> {
             let mut current_progress: f32 = 0.0;
             let mut dynamic_status_text = String::new();
             
-            // FIX 2 Variables: Physical File Download Watcher
             let mut total_packages: f32 = 0.0;
             let mut is_downloading = false;
             
@@ -398,15 +396,15 @@ fn main() -> Result<(), slint::PlatformError> {
                                     if output.contains("Formatting") || output.contains("partition") {
                                         current_progress = 0.10;
                                     } 
-                                    // 1. CATCH THE SILENT DOWNLOAD PHASE!
-                                    else if output.starts_with("Packages (") && output.contains(')') {
-                                        if let Some(num_str) = output.split('(').nth(1).and_then(|s| s.split(')').next()) {
-                                            if let Ok(total) = num_str.parse::<f32>() {
-                                                total_packages = total;
-                                                is_downloading = true; // Turn ON the physical disk watcher
-                                                dynamic_status_text = format!("Preparing to download {} packages...", total);
-                                                is_package_spam = true;
-                                            }
+                                    // 1. HARDENED WATCHER: Look for the silent download phase prompt!
+                                    else if output.contains("Packages (") && output.contains(')') {
+                                        let text_after = output.split("Packages (").nth(1).unwrap_or("");
+                                        let num_str = text_after.split(')').next().unwrap_or("");
+                                        if let Ok(total) = num_str.parse::<f32>() {
+                                            total_packages = total;
+                                            is_downloading = true; // Turn ON physical disk watcher
+                                            dynamic_status_text = format!("Preparing to download {} packages...", total);
+                                            is_package_spam = true;
                                         }
                                     } 
                                     // 2. CATCH THE INSTALLATION PHASE (e.g. "( 1/580) upgrading linux")
@@ -419,7 +417,6 @@ fn main() -> Result<(), slint::PlatformError> {
                                         if num_parts.len() == 2 {
                                             if let (Ok(current), Ok(total)) = (num_parts[0].parse::<f32>(), num_parts[1].parse::<f32>()) {
                                                 if total > 0.0 && current <= total {
-                                                    // Map the installation phase smoothly from 50% to 90%
                                                     current_progress = 0.50 + (0.40 * (current / total));
                                                     is_package_spam = true;
                                                     dynamic_status_text = output.to_string();
@@ -432,7 +429,7 @@ fn main() -> Result<(), slint::PlatformError> {
                                     }
 
                                     if !output.is_empty() {
-                                        if !is_package_spam && !output.starts_with("Packages (") {
+                                        if !is_package_spam && !output.contains("Packages (") {
                                             log_lines.push(format!("> {}", output));
                                         }
                                         if !is_package_spam {
@@ -455,18 +452,18 @@ fn main() -> Result<(), slint::PlatformError> {
                         if last_ui_update.elapsed() >= update_interval {
                             
                             // ========================================================
-                            // THE PHYSICAL DISK HACK: Live Download Progress!
+                            // THE PHYSICAL DISK HACK (Looking at the correct Host Cache)
                             // ========================================================
                             if is_downloading && total_packages > 0.0 {
-                                if let Ok(entries) = std::fs::read_dir("/mnt/var/cache/pacman/pkg/") {
-                                    // Physically count how many packages have hit the disk so far
+                                // FIXED: Pointed to /var/cache/pacman/pkg/ (Live ISO RAM space)
+                                if let Ok(entries) = std::fs::read_dir("/var/cache/pacman/pkg/") {
                                     let downloaded = entries.filter_map(Result::ok)
-                                        .filter(|e| e.path().to_string_lossy().ends_with(".pkg.tar.zst") || 
-                                                    e.path().to_string_lossy().ends_with(".pkg.tar.xz") || 
-                                                    e.path().to_string_lossy().ends_with(".part"))
+                                        .filter(|e| {
+                                            let name = e.file_name().to_string_lossy().to_string();
+                                            name.ends_with(".pkg.tar.zst") || name.ends_with(".pkg.tar.xz") || name.ends_with(".part")
+                                        })
                                         .count() as f32;
                                     
-                                    // Map the download phase smoothly from 15% to 50%
                                     let ratio = (downloaded / total_packages).min(1.0);
                                     current_progress = 0.15 + (0.35 * ratio);
                                     dynamic_status_text = format!("Downloading packages... ({}/{})", downloaded as u32, total_packages as u32);
