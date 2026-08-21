@@ -1,7 +1,7 @@
 slint::include_modules!();
 
 use std::process::{Command, Stdio};
-use std::io::{BufRead, BufReader, Read}; // Added Read trait
+use std::io::{BufRead, BufReader, Read};
 use std::thread;
 use std::rc::Rc;
 use std::time::{Instant, Duration};
@@ -390,22 +390,21 @@ fn main() -> Result<(), slint::PlatformError> {
                 .spawn()
                 .expect("Failed to execute Kestrel bash script");
 
-            // ==============================================================
-            // TERMINAL EMULATOR: Raw Byte Parsing for Progress Animations!
-            // ==============================================================
             let mut stdout = child.stdout.take().expect("Failed to capture stdout");
-            let mut buffer = [0u8; 128]; // Small buffer for ultra-smooth 60fps animations
+            let mut buffer = [0u8; 128]; 
             let mut current_line = String::new();
             let mut in_ansi = false;
 
             let mut current_progress: f32 = 0.0;
+            let mut dynamic_status_text = String::new();
+            
             let mut log_lines: Vec<String> = vec![
                 "> Initiating Kestrel Arch Deployment Protocol...".to_string(),
                 "> Reading configuration matrix...".to_string(),
             ];
 
             let mut last_ui_update = Instant::now();
-            let update_interval = Duration::from_millis(32); // ~30 FPS
+            let update_interval = Duration::from_millis(32); 
 
             loop {
                 match stdout.read(&mut buffer) {
@@ -414,7 +413,6 @@ fn main() -> Result<(), slint::PlatformError> {
                         let chunk = String::from_utf8_lossy(&buffer[..n]);
                         
                         for c in chunk.chars() {
-                            // 1. Intercept and Destroy ANSI escape spam
                             if in_ansi {
                                 if c.is_ascii_alphabetic() {
                                     in_ansi = false; 
@@ -422,36 +420,53 @@ fn main() -> Result<(), slint::PlatformError> {
                                 continue;
                             }
 
-                            // 2. Parse raw terminal control bytes
                             match c {
                                 '\n' => {
                                     let output = current_line.trim();
+                                    let mut is_package_spam = false;
                                     
-                                    // Update Slint progress bar dynamically
+                                    // 1. Base Progress Benchmarks
                                     if output.contains("Formatting") || output.contains("partition") {
-                                        current_progress = 0.25;
-                                    } else if output.contains("pacstrap") || output.contains("Installing") {
-                                        current_progress = 0.60;
+                                        current_progress = 0.10;
+                                    } else if output.contains("Installing Base System") {
+                                        current_progress = 0.15;
                                     } else if output.contains("bootloader") || output.contains("grub") || output.contains("limine") {
-                                        current_progress = 0.85;
+                                        current_progress = 0.90;
+                                    }
+
+                                    // 2. DYNAMIC TOTAL PROGRESS CALCULATOR! 
+                                    // This catches "(12/580) upgrading linux"
+                                    if output.starts_with('(') && output.contains('/') && output.contains(')') {
+                                        let bracket_part = output.split(')').next().unwrap_or("");
+                                        let nums: String = bracket_part.chars().filter(|c| c.is_ascii_digit() || *c == '/').collect();
+                                        let num_parts: Vec<&str> = nums.split('/').collect();
+                                        
+                                        if num_parts.len() == 2 {
+                                            if let (Ok(current), Ok(total)) = (num_parts[0].parse::<f32>(), num_parts[1].parse::<f32>()) {
+                                                if total > 0.0 && current <= total {
+                                                    // Map the 580 packages smoothly between 15% and 85% on the progress bar!
+                                                    current_progress = 0.15 + (0.70 * (current / total));
+                                                    is_package_spam = true; // Flag it so we can hide it from the log box
+                                                }
+                                            }
+                                        }
                                     }
 
                                     if !output.is_empty() {
-                                        log_lines.push(format!("> {}", output));
+                                        if is_package_spam {
+                                            // Hide from the main log, but update the little status text above the progress bar!
+                                            dynamic_status_text = output.to_string();
+                                        } else {
+                                            // Normal important log, add to the main black box
+                                            log_lines.push(format!("> {}", output));
+                                            dynamic_status_text = output.to_string();
+                                        }
                                     }
                                     current_line.clear();
                                 }
-                                '\r' => {
-                                    // CARRIAGE RETURN: Wipe the line to animate progress bars!
-                                    current_line.clear();
-                                }
-                                '\x08' => {
-                                    // BACKSPACE: Erase the last character!
-                                    current_line.pop();
-                                }
-                                '\x1B' => {
-                                    in_ansi = true; // Enter ANSI purge mode
-                                }
+                                '\r' => { current_line.clear(); }
+                                '\x08' => { current_line.pop(); }
+                                '\x1B' => { in_ansi = true; }
                                 _ => {
                                     if !c.is_control() {
                                         current_line.push(c);
@@ -460,7 +475,7 @@ fn main() -> Result<(), slint::PlatformError> {
                             }
                         }
 
-                        // 3. UI Update Throttle
+                        // UI Update Throttle
                         if last_ui_update.elapsed() >= update_interval {
                             let mut display_log = log_lines.clone();
                             let active_line = current_line.trim();
@@ -476,9 +491,10 @@ fn main() -> Result<(), slint::PlatformError> {
 
                             let log_update = display_log.join("\n");
                             
-                            // Prevent status text from flickering empty
                             let status_text = if !active_line.is_empty() {
                                 active_line.to_string()
+                            } else if !dynamic_status_text.is_empty() {
+                                dynamic_status_text.clone()
                             } else {
                                 log_lines.last().unwrap_or(&String::new()).replace("> ", "")
                             };
