@@ -251,7 +251,6 @@ while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
             
             if [ -d "/sys/firmware/efi" ]; then
                 parted -s "$TARGET_DRIVE" mklabel gpt
-                # SHRINK: 512MB UEFI Boot Partition
                 parted -s -a optimal "$TARGET_DRIVE" mkpart primary fat32 1MiB 513MiB
                 parted -s "$TARGET_DRIVE" set 1 esp on
                 parted -s -a optimal "$TARGET_DRIVE" mkpart primary "$FILESYSTEM" 513MiB 100%
@@ -274,8 +273,8 @@ while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
             else
                 echo "[INFO] Legacy BIOS Detected. Building dedicated Boot & Root partitions..."
                 parted -s "$TARGET_DRIVE" mklabel msdos
-                # SHRINK: 512MB Legacy BIOS Boot Partition
-                parted -s -a optimal "$TARGET_DRIVE" mkpart primary ext4 2MiB 514MiB
+                # FIX: Must be declared as fat32 for Limine compatibility
+                parted -s -a optimal "$TARGET_DRIVE" mkpart primary fat32 2MiB 514MiB
                 parted -s "$TARGET_DRIVE" set 1 boot on
                 parted -s -a optimal "$TARGET_DRIVE" mkpart primary "$FILESYSTEM" 514MiB 100%
                 
@@ -286,15 +285,16 @@ while [ "$PROVISIONING_COMPLETE" -eq 0 ]; do
                 wipefs -a "$ARCH_BOOT" &>/dev/null || true
                 wipefs -a "$ARCH_ROOT" &>/dev/null || true
                 
-                echo "[INFO] Formatting $ARCH_BOOT to ext4 (Legacy Compatible)..."
-                mkfs.ext4 -O ^orphan_file,^metadata_csum_seed,^64bit -F "$ARCH_BOOT"
+                # FIX: Format as FAT32, the only filesystem Limine strictly supports
+                echo "[INFO] Formatting $ARCH_BOOT to FAT32 (Limine Compatible)..."
+                mkfs.vfat -F 32 "$ARCH_BOOT"
                 
                 echo "[INFO] Formatting $ARCH_ROOT to $FILESYSTEM..."
                 if [ "$FILESYSTEM" = "btrfs" ]; then mkfs.btrfs -f "$ARCH_ROOT"; else mkfs.ext4 -O ^orphan_file,^metadata_csum_seed -F "$ARCH_ROOT"; fi
                 
                 mount "$ARCH_ROOT" "$TARGET"
                 mkdir -p "$TARGET/boot"
-                mount "$ARCH_BOOT" "$TARGET/boot"
+                mount -t vfat "$ARCH_BOOT" "$TARGET/boot"
                 EFI_DIR="/boot"
             fi
             GRUB_OS_PROBER="true"
