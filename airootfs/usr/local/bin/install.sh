@@ -850,7 +850,7 @@ default_entry: 1
 
 :Kestrel Arch
     protocol: linux
-    kernel_path: boot():/$VMLINUZ
+    path: boot():/$VMLINUZ
     ${UCODE_STR}module_path: boot():/$INITRAMFS
     cmdline: root=UUID=${ROOT_UUID} rw nowatchdog zswap.enabled=0 quiet splash mitigations=off${NVIDIA_CMDLINE}
 EOF
