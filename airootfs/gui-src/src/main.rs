@@ -1,13 +1,12 @@
 slint::include_modules!();
 
 use std::process::{Command, Stdio};
-use std::io::{BufRead, BufReader, Read};
+use std::io::{Read};
 use std::thread;
 use std::rc::Rc;
 use std::time::{Instant, Duration};
 use slint::{ModelRc, SharedString, VecModel};
 
-// Helper function to format raw bytes into human-readable strings for the UI table
 fn format_size(bytes: u64) -> String {
     let kb = 1024.0;
     let mb = kb * 1024.0;
@@ -20,20 +19,18 @@ fn format_size(bytes: u64) -> String {
     else { format!("{}B", bytes) }
 }
 
-// Reusable function to scan partitions and calculate UI layout percentages
 fn scan_partitions(disk_path: &str) -> (Vec<PartitionData>, Vec<SharedString>) {
     let mut partitions = Vec::new();
     let mut available_dropdown = Vec::new();
 
-    // 1. Get the TOTAL disk size in bytes to calculate the visualizer bar percentages
     let disk_output = Command::new("lsblk").arg("-b").arg("-n").arg("-d").arg("-o").arg("SIZE").arg(disk_path).output();
     let total_bytes: f64 = if let Ok(out) = disk_output {
         String::from_utf8_lossy(&out.stdout).trim().parse().unwrap_or(1.0)
     } else { 1.0 };
 
-    // 2. Get all partitions with exact byte sizes
+    // FIX 1: Added '-p' to force lsblk to output exact absolute paths!
     let output = Command::new("lsblk")
-        .arg("-P").arg("-b").arg("-o").arg("NAME,FSTYPE,LABEL,MOUNTPOINT,SIZE")
+        .arg("-P").arg("-p").arg("-b").arg("-o").arg("NAME,FSTYPE,LABEL,MOUNTPOINT,SIZE")
         .arg(disk_path)
         .output();
 
@@ -41,11 +38,11 @@ fn scan_partitions(disk_path: &str) -> (Vec<PartitionData>, Vec<SharedString>) {
         let stdout = String::from_utf8_lossy(&out.stdout);
         
         let colors = [
-            slint::Color::from_rgb_u8(239, 68, 68),  // Red
-            slint::Color::from_rgb_u8(245, 158, 11), // Orange
-            slint::Color::from_rgb_u8(16, 185, 129), // Green
-            slint::Color::from_rgb_u8(59, 130, 246), // Blue
-            slint::Color::from_rgb_u8(168, 85, 247), // Purple
+            slint::Color::from_rgb_u8(239, 68, 68),
+            slint::Color::from_rgb_u8(245, 158, 11),
+            slint::Color::from_rgb_u8(16, 185, 129),
+            slint::Color::from_rgb_u8(59, 130, 246),
+            slint::Color::from_rgb_u8(168, 85, 247),
         ];
         let mut color_idx = 0;
 
@@ -60,21 +57,15 @@ fn scan_partitions(disk_path: &str) -> (Vec<PartitionData>, Vec<SharedString>) {
                 String::new()
             };
 
-            let name = get_val("NAME");
-            let base_disk = disk_path.replace("/dev/", "");
+            let name = get_val("NAME"); // This is now exactly "/dev/sda1"
             
-            // Skip the main drive itself, only capture the sub-partitions
-            if !name.is_empty() && name != base_disk {
+            if !name.is_empty() && name != disk_path {
                 let fs = get_val("FSTYPE");
                 let raw_size: u64 = get_val("SIZE").parse().unwrap_or(0);
-                
-                // Calculate percentage of the visualizer bar it should take up
                 let stretch_val = (raw_size as f64 / total_bytes) as f32;
                 
-                let part_path = format!("/dev/{}", name);
-
                 let part = PartitionData {
-                    name: part_path.clone().into(),
+                    name: name.clone().into(),
                     fstype: if fs.is_empty() { "Unformatted".into() } else { fs.into() },
                     label: get_val("LABEL").into(),
                     mountpoint: get_val("MOUNTPOINT").into(),
@@ -84,13 +75,12 @@ fn scan_partitions(disk_path: &str) -> (Vec<PartitionData>, Vec<SharedString>) {
                 };
                 
                 partitions.push(part);
-                available_dropdown.push(part_path.into());
+                available_dropdown.push(name.into());
                 color_idx += 1;
             }
         }
     }
     
-    // Safety fallback: if completely empty/unallocated, show one massive gray block
     if partitions.is_empty() {
         partitions.push(PartitionData {
             name: "Unallocated Space".into(),
@@ -98,7 +88,7 @@ fn scan_partitions(disk_path: &str) -> (Vec<PartitionData>, Vec<SharedString>) {
             label: "".into(),
             mountpoint: "".into(),
             size: format_size(total_bytes as u64).into(),
-            color_hex: slint::Color::from_rgb_u8(75, 85, 99), // Gray
+            color_hex: slint::Color::from_rgb_u8(75, 85, 99),
             stretch: 1.0,
         });
     }
@@ -109,9 +99,6 @@ fn scan_partitions(disk_path: &str) -> (Vec<PartitionData>, Vec<SharedString>) {
 fn main() -> Result<(), slint::PlatformError> {
     let ui = InstallerWindow::new()?;
     
-    // ==========================================
-    // INITIAL SYSTEM CHECKS (Ethernet, Offline, UEFI)
-    // ==========================================
     let is_offline = std::path::Path::new("/opt/offline_cache").exists();
     ui.set_is_offline_cached(is_offline);
 
@@ -131,9 +118,6 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     }
 
-    // ==========================================
-    // HARDWARE SCANNER: Fetch real disks via lsblk
-    // ==========================================
     let output = Command::new("lsblk")
         .arg("-nd").arg("-o").arg("NAME,SIZE")
         .output()
@@ -169,9 +153,6 @@ fn main() -> Result<(), slint::PlatformError> {
     let disks_model = Rc::new(VecModel::from(disks));
     ui.set_available_disks(ModelRc::from(disks_model.clone()));
 
-    // ==========================================
-    // UI CALLBACK: Fetch Partitions Dynamically
-    // ==========================================
     let ui_handle_fetch = ui.as_weak();
     ui.global::<InstallerLogic>().on_fetch_partitions(move |disk| {
         let pure_disk_path = disk.as_str().split_whitespace().next().unwrap_or("").to_string();
@@ -183,9 +164,6 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     });
 
-    // ==========================================
-    // NETWORK LOGIC: Evaluate Online vs Offline
-    // ==========================================
     let ui_handle_net = ui.as_weak();
     ui.global::<InstallerLogic>().on_check_network_and_proceed(move |mode| {
         let ui_handle = ui_handle_net.clone();
@@ -216,9 +194,6 @@ fn main() -> Result<(), slint::PlatformError> {
         });
     });
 
-    // ==========================================
-    // NETWORK LOGIC: Wi-Fi Rescan & Connect
-    // ==========================================
     let ui_handle_wifi = ui.as_weak();
     ui.global::<InstallerLogic>().on_rescan_wifi(move || {
         let ui_handle = ui_handle_wifi.clone();
@@ -282,9 +257,6 @@ fn main() -> Result<(), slint::PlatformError> {
         });
     });
 
-    // ==========================================
-    // SYSTEM LOGIC: Power Management & Failsafes
-    // ==========================================
     ui.global::<InstallerLogic>().on_reboot_system(move || {
         let _ = Command::new("systemctl").arg("reboot").spawn();
     });
@@ -297,9 +269,6 @@ fn main() -> Result<(), slint::PlatformError> {
         std::process::exit(1);
     });
 
-    // ==========================================
-    // PARTITION MANAGER (Non-Blocking GParted)
-    // ==========================================
     let ui_handle_gparted = ui.as_weak();
     ui.global::<InstallerLogic>().on_launch_gparted(move |disk| {
         let ui_handle = ui_handle_gparted.clone();
@@ -318,9 +287,6 @@ fn main() -> Result<(), slint::PlatformError> {
         });
     });
 
-    // ==========================================
-    // INSTALLER LOGIC: Execute Bash Backend (Crash Capture)
-    // ==========================================
     let ui_handle = ui.as_weak();
     
     ui.global::<InstallerLogic>().on_start_install(move |
@@ -398,6 +364,10 @@ fn main() -> Result<(), slint::PlatformError> {
             let mut current_progress: f32 = 0.0;
             let mut dynamic_status_text = String::new();
             
+            // FIX 2 Variables: Physical File Download Watcher
+            let mut total_packages: f32 = 0.0;
+            let mut is_downloading = false;
+            
             let mut log_lines: Vec<String> = vec![
                 "> Initiating Kestrel Arch Deployment Protocol...".to_string(),
                 "> Reading configuration matrix...".to_string(),
@@ -425,18 +395,23 @@ fn main() -> Result<(), slint::PlatformError> {
                                     let output = current_line.trim();
                                     let mut is_package_spam = false;
                                     
-                                    // 1. Base Progress Benchmarks
                                     if output.contains("Formatting") || output.contains("partition") {
                                         current_progress = 0.10;
-                                    } else if output.contains("Installing Base System") {
-                                        current_progress = 0.15;
-                                    } else if output.contains("bootloader") || output.contains("grub") || output.contains("limine") {
-                                        current_progress = 0.90;
-                                    }
-
-                                    // 2. DYNAMIC TOTAL PROGRESS CALCULATOR! 
-                                    // This catches "(12/580) upgrading linux"
-                                    if output.starts_with('(') && output.contains('/') && output.contains(')') {
+                                    } 
+                                    // 1. CATCH THE SILENT DOWNLOAD PHASE!
+                                    else if output.starts_with("Packages (") && output.contains(')') {
+                                        if let Some(num_str) = output.split('(').nth(1).and_then(|s| s.split(')').next()) {
+                                            if let Ok(total) = num_str.parse::<f32>() {
+                                                total_packages = total;
+                                                is_downloading = true; // Turn ON the physical disk watcher
+                                                dynamic_status_text = format!("Preparing to download {} packages...", total);
+                                                is_package_spam = true;
+                                            }
+                                        }
+                                    } 
+                                    // 2. CATCH THE INSTALLATION PHASE (e.g. "( 1/580) upgrading linux")
+                                    else if output.starts_with('(') && output.contains('/') && output.contains(')') {
+                                        is_downloading = false; // Turn OFF the watcher, downloading is done
                                         let bracket_part = output.split(')').next().unwrap_or("");
                                         let nums: String = bracket_part.chars().filter(|c| c.is_ascii_digit() || *c == '/').collect();
                                         let num_parts: Vec<&str> = nums.split('/').collect();
@@ -444,21 +419,23 @@ fn main() -> Result<(), slint::PlatformError> {
                                         if num_parts.len() == 2 {
                                             if let (Ok(current), Ok(total)) = (num_parts[0].parse::<f32>(), num_parts[1].parse::<f32>()) {
                                                 if total > 0.0 && current <= total {
-                                                    // Map the 580 packages smoothly between 15% and 85% on the progress bar!
-                                                    current_progress = 0.15 + (0.70 * (current / total));
-                                                    is_package_spam = true; // Flag it so we can hide it from the log box
+                                                    // Map the installation phase smoothly from 50% to 90%
+                                                    current_progress = 0.50 + (0.40 * (current / total));
+                                                    is_package_spam = true;
+                                                    dynamic_status_text = output.to_string();
                                                 }
                                             }
                                         }
+                                    } 
+                                    else if output.contains("bootloader") || output.contains("grub") || output.contains("limine") {
+                                        current_progress = 0.95;
                                     }
 
                                     if !output.is_empty() {
-                                        if is_package_spam {
-                                            // Hide from the main log, but update the little status text above the progress bar!
-                                            dynamic_status_text = output.to_string();
-                                        } else {
-                                            // Normal important log, add to the main black box
+                                        if !is_package_spam && !output.starts_with("Packages (") {
                                             log_lines.push(format!("> {}", output));
+                                        }
+                                        if !is_package_spam {
                                             dynamic_status_text = output.to_string();
                                         }
                                     }
@@ -475,8 +452,27 @@ fn main() -> Result<(), slint::PlatformError> {
                             }
                         }
 
-                        // UI Update Throttle
                         if last_ui_update.elapsed() >= update_interval {
+                            
+                            // ========================================================
+                            // THE PHYSICAL DISK HACK: Live Download Progress!
+                            // ========================================================
+                            if is_downloading && total_packages > 0.0 {
+                                if let Ok(entries) = std::fs::read_dir("/mnt/var/cache/pacman/pkg/") {
+                                    // Physically count how many packages have hit the disk so far
+                                    let downloaded = entries.filter_map(Result::ok)
+                                        .filter(|e| e.path().to_string_lossy().ends_with(".pkg.tar.zst") || 
+                                                    e.path().to_string_lossy().ends_with(".pkg.tar.xz") || 
+                                                    e.path().to_string_lossy().ends_with(".part"))
+                                        .count() as f32;
+                                    
+                                    // Map the download phase smoothly from 15% to 50%
+                                    let ratio = (downloaded / total_packages).min(1.0);
+                                    current_progress = 0.15 + (0.35 * ratio);
+                                    dynamic_status_text = format!("Downloading packages... ({}/{})", downloaded as u32, total_packages as u32);
+                                }
+                            }
+
                             let mut display_log = log_lines.clone();
                             let active_line = current_line.trim();
                             
