@@ -739,7 +739,18 @@ if [ "$INSTALL_MODE" = "1" ]; then
     echo -e "[device]\nwifi.backend=iwd" > "$TARGET/etc/NetworkManager/conf.d/wifi_backend.conf"
 fi
 
-arch-chroot "$TARGET" systemctl enable ${DISPLAY_MANAGER}.service NetworkManager.service iwd.service bluetooth.service systemd-timesyncd.service scx.service switcheroo-control.service || true
+# Safely enable critical services
+arch-chroot "$TARGET" systemctl enable ${DISPLAY_MANAGER}.service || true
+arch-chroot "$TARGET" systemctl enable NetworkManager.service iwd.service bluetooth.service systemd-timesyncd.service || true
+
+# Safely enable optional hardware services ONLY if they exist
+if [ -f "$TARGET/usr/lib/systemd/system/scx.service" ]; then
+    arch-chroot "$TARGET" systemctl enable scx.service || true
+fi
+if [ -f "$TARGET/usr/lib/systemd/system/switcheroo-control.service" ]; then
+    arch-chroot "$TARGET" systemctl enable switcheroo-control.service || true
+fi
+
 arch-chroot "$TARGET" systemctl mask systemd-time-wait-sync.service
 
 mkdir -p "$TARGET/etc/bluetooth"
